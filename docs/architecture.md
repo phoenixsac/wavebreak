@@ -1,5 +1,7 @@
 # Wavebreak — Architecture
 
+> Wavebreak catches bad OTA rollouts at runtime and rolls them back, with your approval.
+
 ## Table of Contents
 
 - [0. Journey](#0-journey)
@@ -8,30 +10,35 @@
 - [3. Components (C4 L3)](#3-components-c4-l3)
   - [3.1 Simulated Device](#31-simulated-device)
   - [3.2 OTA Agent](#32-ota-agent)
-  - [3.3 Control Plane](#33-control-plane)
+  - [3.3 inference-app and Releases](#33-inference-app-and-releases)
+  - [3.4 Rehearsal Lab](#34-rehearsal-lab)
+  - [3.5 Backend](#35-backend)
+  - [3.6 Runtimes](#36-runtimes)
 - [4. Key Flows](#4-key-flows)
   - [4.1 Healthy OTA Update](#41-healthy-ota-update)
   - [4.2 Faulty Rollout → Runtime Failure](#42-faulty-rollout--runtime-failure)
-  - [4.3 Agent Triage + Approval + Rollback](#43-agent-triage--approval--rollback)
+  - [4.3 Rehearsal in the Lab](#43-rehearsal-in-the-lab)
+  - [4.4 Canary Waves, Halt and Rollback](#44-canary-waves-halt-and-rollback)
 - [5. Interfaces](#5-interfaces)
 - [6. Data](#6-data)
-- [7. Fault Scenarios](#7-fault-scenarios)
+- [7. Fault Catalogue](#7-fault-catalogue)
 - [8. Deployment](#8-deployment)
 - [9. Decisions Log](#9-decisions-log)
 - [10. Open Questions / TODO(verify)](#10-open-questions--todoverify)
 - [11. Part B — Agent](#11-part-b--agent)
+- [12. Runbook](#12-runbook)
 
 ---
 
 ## 0. Journey
 
-**Pain point**: Firmware rollouts to edge AI device fleets "succeed" at install time but fail at runtime — memory leaks, OOM kill loops, FPS drops — often only on a subset of devices sharing a hardware revision or region. hawkBit's rollout thresholds only see install failures, so regressions spread silently. Engineers spend hours correlating metrics, logs, and rollout history across dozens of devices.
+**Pain point**: a firmware rollout to an edge AI fleet "succeeds" (install OK), then fails at runtime — memory leak → OOM kill loop, config crash loop, FPS drop — often only on a subset (hardware revision, region). hawkBit rollout thresholds only count install failures, so the regression spreads. Humans spend hours correlating metrics, logs, and rollout history.
 
-**Domain**: Linux-based edge AI devices (smart cameras, inference boxes) managed from a cloud backend. Real telemetry (Prometheus, Loki), real OTA (hawkBit).
+**Domain**: Linux edge AI devices (smart cameras) managed from a cloud backend. Real telemetry (Prometheus, Loki), real OTA (Eclipse hawkBit).
 
-**Why an agent**: The triage workflow is mechanical but wide — it crosses metrics, logs, rollout history, and device attributes. An agent can do the correlation in seconds, propose a scoped rollback, and wait for human approval before executing.
+**Why an agent**: the rollout-manager job is mechanical but wide. An agent can inventory versions, rehearse an update on throwaway devices, run canary waves, read metrics and logs between waves, and propose promote / halt / rollback — stopping for human approval before anything irreversible.
 
-**What we built**: A production-faithful simulation of a 15–30 device fleet with real control-plane infrastructure (hawkBit, Prometheus, Loki, Grafana). The agent (Part B) operates on the same APIs a production agent would use.
+**What Part A builds** (this document): a production-faithful environment. Control plane and protocols are real; only device hardware and the payload are simulated. Faults are real code misbehaving, never fabricated log lines.
 
 ---
 
@@ -39,54 +46,61 @@
 
 ```mermaid
 flowchart TB
-    subgraph ext["External"]
-        eng["👤 Fleet Engineer"]
+    eng["👤 Fleet Engineer<br/><i>approves irreversible actions</i>"]
+    agent["🤖 Rollout Agent (Part B)<br/><i>TrueForge on TrueFoundry</i>"]
+
+    subgraph wb["Wavebreak environment"]
+        backend["☁️ Backend zone<br/><i>hawkBit, Prometheus, Loki, Grafana, MCP servers</i>"]
+        field["📦 Field zone<br/><i>device fleet behind NAT</i>"]
+        lab["🧪 Lab zone<br/><i>throwaway rehearsal devices</i>"]
     end
 
-    subgraph wavebreak["Wavebreak System"]
-        agent_box["🤖 Triage Agent<br/><i>Autonomous fleet triage</i>"]
-        cp["☁️ Control Plane<br/><i>hawkBit, Prometheus, Loki, Grafana</i>"]
-        fleet["📦 Edge Device Fleet<br/><i>15–30 simulated devices</i>"]
-    end
-
-    eng -- "reviews proposals,<br/>approves actions" --> agent_box
-    agent_box -- "queries metrics/logs,<br/>executes rollbacks" --> cp
-    cp -- "scrapes metrics,<br/>collects logs" --> fleet
-    fleet -- "polls for updates,<br/>reports feedback" --> cp
+    eng -- "approve / reject" --> agent
+    agent -- "Management API, MCP, PromQL, LogQL" --> backend
+    agent -- "Lab API only" --> lab
+    field -- "outbound only: DDI poll, remote_write, Loki push" --> backend
 ```
+
+- The agent never touches devices directly. Field devices are reached only through hawkBit; lab devices only through the lab controller API.
 
 ---
 
 ## 2. Containers (C4 L2)
 
 ```mermaid
-flowchart TB
-    subgraph control["Control Plane (docker compose)"]
-        hb["hawkBit<br/><i>OTA Update Server</i><br/>:8080"]
-        prom["Prometheus<br/><i>Metrics Store</i><br/>:9090"]
-        loki["Loki<br/><i>Log Aggregation</i><br/>:3100"]
-        grafana["Grafana<br/><i>Dashboards</i><br/>:3000"]
+flowchart LR
+    subgraph backend["Backend zone"]
+        hb["hawkBit<br/><i>update server + UI</i><br/>:8080"]
+        hbdb[("hawkBit DB<br/><i>full profile only;<br/>lite uses H2</i>")]
+        prom["Prometheus<br/><i>remote-write receiver</i><br/>:9090"]
+        loki["Loki<br/>:3100"]
+        graf["Grafana<br/><i>datasources + Wavebreak Fleet</i><br/>:3000"]
+        mcpg["mcp-grafana<br/><i>read-only SA, network transport</i>"]
+        mcph["hawkBit MCP<br/><i>if a release exists</i>"]
     end
 
-    subgraph devices["Simulated Fleet"]
-        d1["Device 1<br/><i>HW_REV=A, REGION=us-east</i>"]
-        d2["Device 2<br/><i>HW_REV=B, REGION=us-east</i>"]
-        dn["Device N<br/><i>...</i>"]
+    subgraph field["Field zone"]
+        d1["edge-001<br/><i>rev A, us-east</i>"]
+        dn["edge-0NN<br/><i>rev B, eu-west</i>"]
     end
 
-    subgraph agent_sys["Agent (Part B)"]
-        agent["Triage Agent<br/><i>TrueForge harness</i>"]
+    subgraph lab["Lab zone (isolated)"]
+        lc["Lab controller<br/><i>token API</i><br/>:8090"]
+        l1["lab-001"]
     end
 
-    d1 & d2 & dn -- "node_exporter :9100" --> prom
-    d1 & d2 & dn -- "Fluent Bit → push" --> loki
-    d1 & d2 & dn -- "DDI API poll" --> hb
-    prom -- "datasource" --> grafana
-    loki -- "datasource" --> grafana
-    agent -- "PromQL" --> prom
-    agent -- "LogQL" --> loki
-    agent -- "Management API" --> hb
-    agent -- "TODO(verify) MCP" --> hb
+    agent["Rollout Agent"]
+
+    d1 & dn -- "DDI poll" --> hb
+    d1 & dn -- "remote_write" --> prom
+    d1 & dn -- "Loki push" --> loki
+    hb --- hbdb
+    prom & loki --> graf
+    mcpg --> graf
+    mcph --> hb
+    lc -- "read-only artifact download" --> hb
+    lc -- "local install, status, metrics" --> l1
+    agent --> hb & mcpg & mcph & lc
 ```
 
 ---
@@ -95,64 +109,109 @@ flowchart TB
 
 ### 3.1 Simulated Device
 
+One image (`sim/device/Dockerfile`), two runtimes (container, Firecracker).
+
 ```mermaid
 flowchart TB
-    subgraph device["Simulated Device Container (Debian + systemd)"]
-        systemd["systemd (PID 1)"]
-        ne["node_exporter<br/><i>:9100</i><br/>+ textfile collector"]
-        fb["Fluent Bit<br/><i>journald → Loki</i>"]
-        app["inference-app<br/><i>systemd unit, MemoryMax</i>"]
-        ota["ota-agent<br/><i>DDI client (Python)</i>"]
-        slots["A/B Firmware Slots<br/><i>/opt/firmware/{a,b}</i>"]
+    subgraph dev["Device (Debian slim, systemd PID 1)"]
+        ident["wavebreak-identity<br/><i>env or kernel cmdline → identity.env</i>"]
+        boot["boot-record<br/><i>oneshot; ExecStop writes clean marker</i>"]
+        app["inference-app<br/><i>MemoryMax, Restart=always</i>"]
+        rst["restarts-metric timer<br/><i>NRestarts → textfile</i>"]
+        ne["node_exporter :9100<br/><i>+ textfile collector</i>"]
+        fb["Fluent Bit"]
+        ota["ota-agent<br/><i>ddi (field) or local (lab)</i>"]
+        slots["/opt/app/slot_a, slot_b<br/>current → active slot"]
     end
 
-    systemd --> ne & fb & app & ota
-    ota -- "download, verify,<br/>install to inactive slot" --> slots
-    app -- "custom metrics via<br/>textfile collector" --> ne
-    app -- "stdout/stderr → journal" --> fb
+    ident --> boot & app & ota & fb
+    app -- "*.prom every 5s" --> ne
+    rst -- "*.prom" --> ne
+    fb -- "scrape" --> ne
+    ota -- "install to inactive slot, flip" --> slots
+    app -- "runs" --> slots
+    ota -- "rewrite labels.env, restart" --> fb
 ```
 
-- **Identity**: env vars `DEVICE_ID`, `HW_REV` (A or B), `REGION` (us-east, eu-west, ap-south)
-- **Firmware slots**: A/B layout under `/opt/firmware/`. Active slot symlinked at `/opt/firmware/current`.
-- **inference-app**: fake workload; allocates memory proportional to firmware version behavior. v2.3 on HW_REV=B leaks memory until OOM-killed by systemd `MemoryMax`.
+| Item | Value |
+|------|-------|
+| Identity | `DEVICE_ID`, `HW_REV` (A or B), `REGION`. Container: env. Firecracker: `wavebreak.device_id=`, `wavebreak.hw_rev=`, `wavebreak.region=` kernel args. First-boot unit writes `/etc/wavebreak/identity.env` |
+| Labels file | `/etc/wavebreak/labels.env`: device_id, hw_rev, region, fw_version. Rewritten by ota-agent after each install |
+| App slots | `/opt/app/slot_a`, `/opt/app/slot_b`, symlink `/opt/app/current` |
+| MemoryMax | lite 48M, full 96M (from fleet profile) |
+| boot-record | appends `{boot_id, ts, fw_version, previous_shutdown: clean or unclean}` to `/var/log/wavebreak/boot.log`. Containers generate `boot_id` per start (kernel boot_id is the host's) |
+| kmsg | Firecracker only. In containers `/dev/kmsg` is the host's, so the input is disabled |
 
 ### 3.2 OTA Agent
 
-```mermaid
-flowchart TB
-    subgraph ota_agent["OTA Agent (Python)"]
-        poll["Poll Controller<br/><i>GET /tenant/controller/v1/{id}</i>"]
-        dl["Download Handler<br/><i>fetch artifact, verify SHA256</i>"]
-        install["Installer<br/><i>extract to inactive slot,<br/>flip symlink</i>"]
-        fb_report["Feedback Reporter<br/><i>POST feedback to hawkBit</i>"]
-    end
-
-    poll -- "deployment action" --> dl
-    dl -- "verified tarball" --> install
-    install -- "restart inference-app" --> fb_report
-    fb_report -- "result: success/failure" --> poll
-```
-
-- Speaks the real hawkBit DDI API.
-- Reports `SUCCESSFUL` or `FAILURE` feedback after install.
-- Does NOT detect runtime failures — that's the agent's job.
-
-### 3.3 Control Plane
+Python stdlib only (`sim/ota-agent`), pytest tests.
 
 ```mermaid
 flowchart TB
-    subgraph cp["Control Plane"]
-        hb["hawkBit<br/><i>Software modules,<br/>distribution sets,<br/>rollout groups,<br/>targets</i>"]
-        hb_ui["hawkBit UI<br/><i>:8080</i>"]
-        prom["Prometheus<br/><i>scrape config per device,<br/>15s interval</i>"]
-        loki["Loki<br/><i>single-tenant,<br/>filesystem storage</i>"]
-        grafana["Grafana<br/><i>pre-configured dashboards</i>"]
+    subgraph ota["ota-agent"]
+        ddi["DDI mode (field)<br/><i>poll with backoff, configData,<br/>deploymentBase, feedback</i>"]
+        local["Local mode (lab)<br/><i>CLI install + token HTTP API</i>"]
+        core["Install core<br/><i>shared</i>"]
     end
-
-    hb_ui --> hb
-    prom -- "datasource" --> grafana
-    loki -- "datasource" --> grafana
+    ddi -- "bundle + expected sha256" --> core
+    local -- "uploaded bundle" --> core
+    core --> s1["extract to inactive slot"] --> s2["flip /opt/app/current"] --> s3["restart inference-app"] --> s4{"health window 15s<br/>unit active + frames_total advancing"}
+    s4 -- "ok" --> s5["labels.env + restart Fluent Bit → success"]
+    s4 -- "fail" --> s6["flip back, restart → failure"]
 ```
+
+- DDI: registers config data (device_id, hw_rev, region, fw_version); verifies the artifact against hawkBit's sha256; feedback `proceeding` → `success` or `failure` with messages.
+- Assigned version == installed version → report success without reinstalling (makes seeding work).
+- The health window is intentionally short: v1.3 fails after it closes (see §7), which is the point.
+- Auth: DDI gateway token (D14).
+
+### 3.3 inference-app and Releases
+
+Simulated camera-AI loop: generates frames sized by sensor (rev A "1080p", rev B "4K"; bytes scaled down, configurable), "processes" them, logs JSON lines (with fw_version and labels), writes textfile metrics every 5 s, reloads config every ~45 s.
+
+| Release | Change | Behaviour |
+|---------|--------|-----------|
+| v1.0 | baseline | healthy |
+| v1.1 | adds per-frame latency metric | healthy |
+| v1.2 | adds a "4K enhancement buffer", used only when sensor is 4K; never evicted | rev B: memory climbs to MemoryMax → OOM kill → restart loop (~3 min, configurable). Rev A unaffected |
+| v1.3 | renames a config key without migration | first config reload (~45 s, after the health window) raises → crash loop on every device; hawkBit shows install success |
+| v1.4 | bounded 4K buffer | fixes v1.2 |
+
+Bundle layout: `sim/bundles/vX.Y/{manifest.json, app/, config.yaml}` → `build/bundles/wavebreak-app-vX.Y.tar` + `.sha256`.
+
+### 3.4 Rehearsal Lab
+
+- `lab/controller` (FastAPI, token auth). The agent gets only this API: no Docker socket, no root.
+- Boots throwaway devices at a version, installs a candidate fetched **read-only** from hawkBit's Management API, and reports a summary read directly from the device (ota-agent `/status` + node_exporter scrape).
+- Isolation: container runtime → internal Docker network with no route to the backend (controller attaches to both); Firecracker → `wblab0` bridge without NAT or forwarding.
+- Lab devices never talk to production hawkBit, Prometheus, or Loki (ota-agent in local mode, Fluent Bit outputs disabled).
+
+### 3.5 Backend
+
+| Service | Role | Notes |
+|---------|------|-------|
+| hawkBit | update server + UI | lite: embedded H2, heap capped. full: DB from hawkBit's official compose |
+| Prometheus | metrics | `--web.enable-remote-write-receiver`; devices push |
+| Loki | logs | single binary, filesystem storage |
+| Grafana | dashboards | provisioned datasources + "Wavebreak Fleet" dashboard |
+| mcp-grafana | agent tool server | official Grafana MCP, read-only service account, network transport |
+| hawkBit MCP | agent tool server | only if a released artifact exists (T2.2); else agent wraps `wavebreak_clients.hawkbit` |
+
+### 3.6 Runtimes
+
+| | container | firecracker |
+|--|-----------|-------------|
+| Isolation | systemd container | microVM (KVM) |
+| Flags / setup | `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock`, STOPSIGNAL SIGRTMIN+3 | `scripts/host/setup-fc-net.sh` once (sudo), then rootless |
+| Rootfs | the image | image → `docker export` → `fakeroot mkfs.ext4 -d` → per-VM reflink/sparse copy |
+| Kernel | host | Firecracker CI guest kernel 6.1 |
+| Field network | Docker network `wb-field` | bridge `wbfield0` 172.30.0.0/24 + NAT; backend at 172.30.0.1 (host-published ports) |
+| Lab network | Docker internal network `wb-lab` | bridge `wblab0` 172.31.0.0/24, no NAT |
+| Memory per device | MemoryMax only | VM 128 MB lite, 256 MB full |
+| kmsg input | off | on |
+| Per-device files | — | `run/fc/<id>/` config JSON, API socket, serial log, pidfile |
+
+Fleet: `sim/fleet/fleet.yaml` profiles lite (4 devices) and full (20); hw_rev 60% A / 40% B; regions us-east, eu-west, ap-south; deterministic IDs `edge-001`…; initial version v1.0.
 
 ---
 
@@ -162,26 +221,25 @@ flowchart TB
 
 ```mermaid
 sequenceDiagram
-    participant E as Fleet Engineer
+    participant Op as Operator or Agent
     participant HB as hawkBit
     participant D as Device (ota-agent)
     participant App as inference-app
+    participant FB as Fluent Bit
 
-    E->>HB: Create software module v2.2
-    E->>HB: Create distribution set
-    E->>HB: Create rollout (all devices)
-    loop Every 30s
-        D->>HB: GET /controller/v1/{id} (poll)
-        HB-->>D: deploymentBase action
+    Op->>HB: assign DS v1.1 (rollout or direct)
+    loop poll with backoff
+        D->>HB: GET /{tenant}/controller/v1/{id}
     end
-    D->>HB: GET artifact (download)
-    D->>D: Verify SHA256
-    D->>D: Extract to inactive slot
-    D->>D: Flip symlink to new slot
-    D->>App: systemctl restart inference-app
-    App-->>D: Started OK
-    D->>HB: POST feedback (SUCCESSFUL)
-    Note over D,App: Device running v2.2, healthy metrics
+    HB-->>D: deploymentBase link
+    D->>HB: GET deploymentBase/{actionId}
+    D->>HB: feedback proceeding
+    D->>HB: download artifact
+    D->>D: verify sha256, extract to inactive slot, flip current
+    D->>App: systemctl restart
+    D->>D: health window 15s (unit active, frames_total advancing)
+    D->>FB: rewrite labels.env (fw_version=v1.1), restart
+    D->>HB: feedback success
 ```
 
 ### 4.2 Faulty Rollout → Runtime Failure
@@ -189,226 +247,250 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant HB as hawkBit
-    participant DA as Device A (HW_REV=A)
-    participant DB as Device B (HW_REV=B)
-    participant Prom as Prometheus
-    participant Loki as Loki
+    participant A as Device rev A
+    participant B as Device rev B
+    participant P as Prometheus
+    participant L as Loki
 
-    HB->>DA: Rollout v2.3
-    HB->>DB: Rollout v2.3
-    DA->>DA: Install v2.3, restart app
-    DB->>DB: Install v2.3, restart app
-    DA->>HB: feedback: SUCCESSFUL
-    DB->>HB: feedback: SUCCESSFUL
-    Note over HB: Rollout shows 100% success
-
-    Note over DA: v2.3 on HW_REV=A: healthy
-    Note over DB: v2.3 on HW_REV=B: memory leak begins
-
-    loop Every 15s
-        Prom->>DA: scrape metrics (normal)
-        Prom->>DB: scrape metrics (rising memory)
+    HB->>A: v1.2
+    HB->>B: v1.2
+    A->>HB: success (health window passed)
+    B->>HB: success (health window passed)
+    Note over HB: rollout shows 100% success
+    loop every 5s
+        A->>P: cgroup memory flat
+        B->>P: cgroup memory rising (4K buffer never evicted)
     end
-
-    DB->>Loki: journal: inference-app OOM killed
-    DB->>DB: systemd restarts inference-app
-    DB->>Loki: journal: inference-app started
-    Note over DB: Cycle repeats: OOM → restart → leak → OOM
-    DB->>Loki: journal: FPS drops before each OOM
+    Note over B: ~3 min: MemoryMax reached
+    B->>L: journal: inference-app oom-kill, restart
+    B->>P: restarts_total +1, fps drops
+    Note over B: loop: start → leak → OOM → restart
 ```
 
-### 4.3 Agent Triage + Approval + Rollback
-
-> **Placeholder** — Part B implementation. Expected flow:
+### 4.3 Rehearsal in the Lab
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Triage Agent
-    participant Prom as Prometheus
-    participant Loki as Loki
+    participant Ag as Agent
+    participant LC as Lab controller
+    participant HB as hawkBit (read-only)
+    participant LD as Lab device (rev B)
+
+    Ag->>LC: POST /lab/devices {count 1, hw_rev B, version v1.1}
+    LC->>LD: boot, local install v1.1
+    Ag->>LC: POST /lab/devices/{id}/install {version v1.2}
+    LC->>HB: download v1.2 artifact (Management API, read-only)
+    LC->>LD: upload bundle to local-install endpoint
+    LD-->>LC: install result success
+    loop over minutes
+        Ag->>LC: GET /lab/devices/{id}/summary
+        LC->>LD: /status + node_exporter scrape
+        LC-->>Ag: memory trend, restarts, OOM kills
+    end
+    Ag->>LC: DELETE /lab/devices/{id}
+```
+
+### 4.4 Canary Waves, Halt and Rollback
+
+Executed by the Part B agent; documented here as the target behaviour.
+
+```mermaid
+sequenceDiagram
+    participant Ag as Agent
+    participant Eng as Engineer
     participant HB as hawkBit
-    participant Eng as Fleet Engineer
+    participant Obs as Prometheus / Loki (via MCP)
 
-    Agent->>Prom: PromQL: memory anomaly detection
-    Prom-->>Agent: Elevated memory on devices 5,8,12,19
-    Agent->>Loki: LogQL: OOM kills on affected devices
-    Loki-->>Agent: Confirmed OOM kill loops
-    Agent->>HB: GET targets → firmware versions, attributes
-    HB-->>Agent: All affected: v2.3, HW_REV=B
-    Agent->>Agent: Correlate: v2.3 + HW_REV=B → regression
-
-    Agent->>Eng: Proposal: reassign v2.2 to HW_REV=B devices (8 devices)
-    Eng->>Agent: Approved
-
-    Agent->>HB: Create rollout: v2.2 → HW_REV=B targets
-    Agent->>Prom: Monitor recovery metrics
-    Note over Agent: Verify memory stabilizes, FPS recovers
-    Agent->>Eng: Recovery confirmed on 8/8 devices
+    Ag->>HB: inventory targets, installed DS, attributes
+    Ag->>Eng: plan: v1.2 in waves 2 → 5 → all
+    Eng-->>Ag: approve
+    Ag->>HB: create rollout (groups 2, 5, rest), start
+    Ag->>Obs: watch memory, restarts, OOM per cohort
+    Note over Ag: rev B devices in wave 1 OOM-looping
+    Ag->>HB: pause rollout
+    Ag->>Eng: proposal: roll back rev B wave-1 devices to v1.1 (blast radius N)
+    Eng-->>Ag: approve
+    Ag->>HB: assign DS v1.1 to affected targets
+    Ag->>Obs: verify recovery (memory flat, restarts stop)
+    Ag->>Eng: recovered N/N
 ```
 
 ---
 
 ## 5. Interfaces
 
+Endpoint facts below come from hawkBit docs and are **TODO(verify)** against the running server's OpenAPI (T2.1, S1) unless marked verified.
+
 ### hawkBit DDI API (device-facing)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/tenant/controller/v1/{controllerId}` | GET | Poll for deployment actions |
-| `/tenant/controller/v1/{controllerId}/deploymentBase/{actionId}` | GET | Get deployment details + artifacts |
-| `/tenant/controller/v1/{controllerId}/deploymentBase/{actionId}/feedback` | POST | Report install result |
-| `/tenant/controller/v1/{controllerId}/softwaremodules/{smId}/artifacts/{filename}` | GET | Download firmware artifact |
+| `/{tenant}/controller/v1/{controllerId}` | GET | Poll; returns links and polling sleep |
+| `/{tenant}/controller/v1/{controllerId}/configData` | PUT | Send attributes (device_id, hw_rev, region, fw_version) |
+| `/{tenant}/controller/v1/{controllerId}/deploymentBase/{actionId}` | GET | Deployment details, chunks, artifact links and hashes |
+| `/{tenant}/controller/v1/{controllerId}/deploymentBase/{actionId}/feedback` | POST | Report proceeding / success / failure |
+| `/{tenant}/controller/v1/{controllerId}/softwaremodules/{smId}/artifacts/{filename}` | GET | Download artifact |
 
-### hawkBit Management API (agent-facing)
+Auth header: `Authorization: GatewayToken <token>` (or `TargetToken <token>`), behind a config flag.
+
+### hawkBit Management API (agent, publish, seed, lab controller)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/rest/v1/targets` | GET/POST | List/create targets |
-| `/rest/v1/targets/{id}` | GET | Get target details + attributes |
-| `/rest/v1/softwaremodules` | GET/POST | List/create software modules |
-| `/rest/v1/distributionsets` | GET/POST | List/create distribution sets |
-| `/rest/v1/rollouts` | GET/POST | List/create rollouts |
-| `/rest/v1/rollouts/{id}/start` | POST | Start a rollout |
-| `/rest/v1/rollouts/{id}/pause` | POST | Pause a rollout |
-| `/rest/v1/actions` | GET | List actions across targets |
+| `/rest/v1/targets` | GET | List targets (FIQL `q=`) |
+| `/rest/v1/targets/{id}/attributes` | GET | Target attributes |
+| `/rest/v1/targets/{id}/installedDS` | GET | Installed distribution set |
+| `/rest/v1/targets/{id}/assignedDS` | POST | Assign DS to a target |
+| `/rest/v1/targets/{id}/actions/{actionId}` | GET | Action status |
+| `/rest/v1/softwaremoduletypes`, `/rest/v1/distributionsettypes` | GET | Discover types at runtime |
+| `/rest/v1/softwaremodules` | GET, POST | List / create SM |
+| `/rest/v1/softwaremodules/{id}/artifacts` | POST | Upload artifact (multipart) |
+| `/rest/v1/softwaremodules/{id}/artifacts/{artifactId}/download` | GET | Download artifact (lab controller, read-only) |
+| `/rest/v1/distributionsets` | GET, POST | List / create DS |
+| `/rest/v1/distributionsets/{id}/assignedTargets` | POST | Assign DS to targets |
+| `/rest/v1/rollouts` | GET, POST | List / create rollout (targetFilterQuery, amountGroups or groups, success/error conditions) |
+| `/rest/v1/rollouts/{id}/start`, `/pause`, `/resume` | POST | Control rollout |
+| `/rest/v1/rollouts/{id}/deploygroups` | GET | Group status |
+| `/rest/system/configs/{key}` | PUT | Tenant config (gateway token, polling) |
 
-### Prometheus
+Auth: HTTP basic (user from `.env`).
 
-| Item | Value |
-|------|-------|
-| Port | 9090 |
-| Scrape interval | 15s |
-| Scrape targets | `device-{id}:9100/metrics` |
-| Query API | `/api/v1/query`, `/api/v1/query_range` |
+### ota-agent local API (lab devices only)
 
-### Loki
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/install` | POST | Upload bundle (tar body), returns install result |
+| `/status` | GET | fw_version, slot, unit state, restarts, last install result |
 
-| Item | Value |
-|------|-------|
-| Port | 3100 |
-| Push endpoint | `POST /loki/api/v1/push` |
-| Query API | `/loki/api/v1/query`, `/loki/api/v1/query_range` |
-| Labels | `{device_id, hw_rev, region, job}` |
+Auth: `Authorization: Bearer <LAB_DEVICE_TOKEN>`. Port 8081.
 
-### Grafana
+### Lab controller API (agent-facing)
 
-| Item | Value |
-|------|-------|
-| Port | 3000 |
-| Default creds | admin / admin (via `.env`) |
-| Datasources | Prometheus, Loki (provisioned) |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/lab/devices` | POST | `{count, hw_rev, version}` → boot lab devices at a version |
+| `/lab/devices` | GET | List lab devices |
+| `/lab/devices/{id}/install` | POST | `{version}` → fetch artifact from hawkBit (read-only), upload to device |
+| `/lab/devices/{id}/summary` | GET | fw_version, memory trend samples, restarts, OOM kills, unit state, last install result |
+| `/lab/devices/{id}` | DELETE | Destroy device |
 
-### hawkBit MCP Server
+Auth: `Authorization: Bearer <LAB_API_TOKEN>`. Port 8090.
 
-| Item | Value |
-|------|-------|
-| Status | TODO(verify): confirm MCP server ships in hawkBit Docker image |
-| Tools | TODO(verify): list available MCP tools |
-| Port | TODO(verify) |
+### Telemetry ingest (device → backend)
+
+| Path | Protocol | Target |
+|------|----------|--------|
+| Metrics | Prometheus remote_write | `http://<backend>:9090/api/v1/write` |
+| Logs | Loki push | `http://<backend>:3100/loki/api/v1/push` |
+
+### Fluent Bit pipeline (TODO(verify) plugin names and options, T6.1)
+
+| Stage | Plugin | Config |
+|-------|--------|--------|
+| input | `prometheus_scrape` | `127.0.0.1:9100/metrics`, 15s |
+| input | `systemd` | units inference-app, ota-agent, systemd |
+| input | `kmsg` | Firecracker only |
+| input | `tail` | `/var/log/wavebreak/boot.log` |
+| output | `prometheus_remote_write` | labels from labels.env |
+| output | `loki` | labels device_id, hw_rev, region, fw_version, source |
+
+### Ports
+
+| Port | Service |
+|------|---------|
+| 8080 | hawkBit (UI, DDI, Management API) |
+| 9090 | Prometheus |
+| 3100 | Loki |
+| 3000 | Grafana |
+| 8000 | mcp-grafana (TODO(verify)) |
+| 8090 | Lab controller |
+| 8081 | ota-agent local API (lab devices) |
+| 9100 | node_exporter (device-local) |
 
 ---
 
 ## 6. Data
 
-### Prometheus Metrics
+### Device metrics (textfile collector; source of truth for memory in both runtimes)
 
-| Metric | Source | Type | Description |
-|--------|--------|------|-------------|
-| `node_cpu_seconds_total` | node_exporter | counter | CPU usage |
-| `node_memory_MemAvailable_bytes` | node_exporter | gauge | Available memory |
-| `node_memory_MemTotal_bytes` | node_exporter | gauge | Total memory |
-| `node_filesystem_avail_bytes` | node_exporter | gauge | Disk space |
-| `node_network_receive_bytes_total` | node_exporter | counter | Network rx |
-| `device_temperature_celsius` | textfile collector | gauge | Device temperature |
-| `inference_fps` | textfile collector | gauge | Inference frames per second |
-| `inference_app_memory_bytes` | textfile collector | gauge | App RSS memory |
-| `gpu_memory_used_bytes` | textfile collector | gauge | GPU memory used |
+In containers node_exporter reports **host** memory, so app-level and cgroup metrics are authoritative.
 
-### Loki Log Labels
+| Metric | Type | Description |
+|--------|------|-------------|
+| `wavebreak_app_info{fw_version}` | gauge (1) | Running version, for joins |
+| `wavebreak_app_rss_bytes` | gauge | App RSS |
+| `wavebreak_app_cgroup_memory_bytes` | gauge | Unit cgroup `memory.current` |
+| `wavebreak_app_frames_total` | counter | Frames processed; heartbeat for the health window |
+| `wavebreak_app_fps` | gauge | Frames per second |
+| `wavebreak_app_cache_items` | gauge | Items in the enhancement buffer / cache |
+| `wavebreak_app_frame_latency_seconds` | gauge | Per-frame latency (v1.1+) |
+| `wavebreak_app_restarts_total` | counter | systemd NRestarts (timer unit) |
+| `wavebreak_device_boot_time_seconds` | gauge | Boot timestamp |
 
-| Label | Values | Description |
-|-------|--------|-------------|
-| `device_id` | `device-01` .. `device-30` | Device identifier |
-| `hw_rev` | `A`, `B` | Hardware revision |
-| `region` | `us-east`, `eu-west`, `ap-south` | Deployment region |
-| `job` | `syslog`, `journal`, `kmsg` | Log source |
+Every series carries `device_id`, `hw_rev`, `region`, `fw_version` (added by Fluent Bit from labels.env).
 
-### Key Log Patterns
+### Log streams (Loki)
+
+| Label | Values |
+|-------|--------|
+| `device_id` | `edge-001` … `edge-020`, `lab-NNN` |
+| `hw_rev` | `A`, `B` |
+| `region` | `us-east`, `eu-west`, `ap-south` |
+| `fw_version` | `v1.0` … `v1.4` |
+| `source` | `journal`, `kmsg`, `boot` |
+
+### Key log patterns
 
 | Pattern | Meaning |
 |---------|---------|
-| `inference-app.*OOM` or `oom-kill` | OOM killer invoked |
-| `inference-app.*started` | App (re)started |
-| `inference-app.*memory.*bytes` | Memory usage log |
-| `ota-agent.*install.*success` | Firmware installed |
-| `ota-agent.*install.*failed` | Firmware install failed |
-| `systemd.*reboot` | Device reboot |
+| `inference-app.service: A process of this unit has been killed by the OOM killer` / `Failed with result 'oom-kill'` | OOM kill (systemd wording, TODO(verify) exact text) |
+| app JSON `"event": "config_reload_failed"` then traceback | v1.3 crash |
+| ota-agent JSON `"event": "install_result"` | install success or failure |
+| boot.log `"previous_shutdown": "unclean"` | crash or power loss before this boot |
 
-### Device Identity Attributes
+### Device attributes in hawkBit (configData)
 
-| Attribute | Source | Values |
-|-----------|--------|--------|
-| `DEVICE_ID` | env var | `device-01` through `device-30` |
-| `HW_REV` | env var | `A`, `B` |
-| `REGION` | env var | `us-east`, `eu-west`, `ap-south` |
-| `firmware_version` | hawkBit target attributes | `v2.2`, `v2.3` |
+| Attribute | Values |
+|-----------|--------|
+| `device_id` | `edge-001` … |
+| `hw_rev` | `A`, `B` |
+| `region` | `us-east`, `eu-west`, `ap-south` |
+| `fw_version` | installed version |
 
 ---
 
-## 7. Fault Scenarios
+## 7. Fault Catalogue
 
-| ID | Trigger | Affected Cohort | Observable Symptoms | Expected Root Cause |
-|----|---------|----------------|---------------------|---------------------|
-| F1 | Rollout v2.3 | HW_REV=B only | Rising `inference_app_memory_bytes`, OOM kill logs, `inference_fps` drop to 0 before each kill, restart loops | Memory leak in v2.3 triggered by HW_REV=B-specific code path |
-| F2 | (future) | TODO | TODO | TODO |
-| F3 | (future) | TODO | TODO | TODO |
+| ID | Release | Cohort | Symptoms | Root cause (real code) |
+|----|---------|--------|----------|------------------------|
+| F1 | v1.2 | HW_REV=B | cgroup memory climbs, fps drops, OOM kill ~3 min after install, restart loop, restarts_total rising | 4K enhancement buffer never evicted |
+| F2 | v1.3 | all devices | install success, then crash ~45 s after start on every restart, restarts_total rising, fps 0 | config key renamed without migration, read on first reload |
+| — | v1.4 | — | healthy | F1 fixed with bounded buffer |
 
-### F1 Timeline
+### F1 timeline
 
-1. **T+0**: v2.3 rollout starts, all devices install and report `SUCCESSFUL`
-2. **T+2m**: HW_REV=B devices show rising `inference_app_memory_bytes`
-3. **T+5m**: `inference_fps` drops on HW_REV=B devices as memory pressure increases
-4. **T+8m**: First OOM kills on HW_REV=B devices; `inference_fps` = 0
-5. **T+8m+**: systemd restarts app, leak resumes, cycle repeats every ~8 min
-6. HW_REV=A devices remain healthy throughout
+1. T+0: v1.2 installed, health window passes, hawkBit shows success.
+2. T+0…3m: rev B `wavebreak_app_cgroup_memory_bytes` climbs; rev A flat.
+3. T+~3m: OOM kill at MemoryMax; systemd restarts the app; cycle repeats.
+
+### F2 timeline
+
+1. T+0: v1.3 installed; health window (15 s) passes.
+2. T+~45s: first config reload raises; systemd restarts; repeats on every device.
 
 ---
 
 ## 8. Deployment
 
-### Local (Docker Compose)
+| | Local (WSL, dev) | AWS (build day) |
+|--|------------------|-----------------|
+| Profile | lite (4 devices, H2) | full (20 devices, hawkBit DB) |
+| Runtime | container; Firecracker for one-VM smoke | firecracker (fallback container if no `/dev/kvm`) |
+| Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via CPU options (TODO(verify) CLI syntax), Ubuntu 24.04, 60 GB gp3 |
+| Access | localhost | SG restricted to caller IP: 22, 3000, 8080, MCP, 8090 |
+| Bootstrap | Makefile targets | `infra/aws/launch.sh` → user-data → `infra/aws/install.sh` |
 
-| Requirement | Minimum |
-|-------------|---------|
-| Docker | 24+ |
-| Docker Compose | v2.20+ |
-| RAM | 8 GB (16 GB recommended for 30 devices) |
-| Disk | 10 GB free |
-| CPU | 4 cores |
-
-```bash
-cp .env.example .env
-make up      # control plane
-make fleet   # devices
-```
-
-### AWS (Single EC2)
-
-| Item | Value |
-|------|-------|
-| Instance type | `t3.xlarge` (4 vCPU, 16 GB) or `t4g.xlarge` (ARM) |
-| AMI | Amazon Linux 2023 or Ubuntu 22.04 |
-| Disk | 30 GB gp3 |
-| Security groups | 22 (SSH), 8080 (hawkBit UI), 3000 (Grafana), 9090 (Prometheus) |
-| Bootstrap | `bash infra/aws/bootstrap.sh` |
-
-Bootstrap steps:
-1. Install Docker + Compose
-2. Clone repo
-3. Copy `.env`
-4. `make up && make fleet`
-
-Optional: one Graviton (`t4g.medium`) running the device install natively for ARM credibility.
+Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
 
 ---
 
@@ -416,13 +498,24 @@ Optional: one Graviton (`t4g.medium`) running the device install natively for AR
 
 | ID | Decision | Reason | Date |
 |----|----------|--------|------|
-| D1 | Use real hawkBit instead of mocking OTA | Judges want production-like behavior; hawkBit is OSS and has Docker images | 2026-09-26 |
-| D2 | Debian + systemd containers for devices | Need systemd for journal, service management, OOM control (MemoryMax); Alpine lacks systemd | 2026-09-26 |
-| D3 | Fluent Bit over Promtail for log shipping | Lighter footprint per container; native journald input plugin | 2026-09-26 |
-| D4 | A/B firmware slot design | Mirrors real edge device layout; enables clean rollback semantics | 2026-09-26 |
-| D5 | Real memory leak for fault injection | "Faults are real code behaving badly, never fabricated log lines" — more convincing to judges | 2026-09-26 |
-| D6 | Mermaid flowcharts styled as C4 over native C4 syntax | Mermaid C4 syntax is experimental and renders unreliably across tools | 2026-09-26 |
-| D7 | Single architecture.md as design source of truth | One file to maintain; HTML viewer is derived, never hand-edited | 2026-09-26 |
+| D1 | Real hawkBit, not a mock | Production-like behaviour; OSS with Docker images | 2026-09-25 |
+| D2 | Debian + systemd devices | journald, unit management, MemoryMax / OOM semantics | 2026-09-25 |
+| D3 | Fluent Bit on devices | One lightweight agent for metrics (remote_write) and logs (Loki); journald input | 2026-09-25 |
+| D4 | A/B **app** slots under `/opt/app` (supersedes rootfs slots) | Clean rollback semantics without rebuilding rootfs; same layout in both runtimes | 2026-09-25 |
+| D5 | Faults are real code diffs | Symptoms emerge from processes misbehaving, never fabricated logs | 2026-09-25 |
+| D6 | Mermaid flowcharts styled as C4 | Mermaid C4 syntax renders unreliably | 2026-09-25 |
+| D7 | architecture.md is the single design source; HTML is generated | One file to maintain | 2026-09-25 |
+| D8 | Three zones: backend, field, lab | Mirrors production: devices behind NAT, isolated rehearsal | 2026-09-25 |
+| D9 | Devices push telemetry (remote_write, Loki push); no Prometheus scraping of devices (supersedes scrape design) | Real devices are behind NAT and only initiate outbound connections | 2026-09-25 |
+| D10 | Releases v1.0–v1.4 as app bundles (supersedes v2.2 / v2.3) | Two independent faults (F1 cohort leak, F2 fleet-wide crash) plus a fix release | 2026-09-25 |
+| D11 | App-level + cgroup metrics are the memory source of truth | node_exporter in containers reports host memory | 2026-09-25 |
+| D12 | systemd containers run with `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock`, **not** privileged | Verified in WSL (run 1): reaches `running`, MemoryMax enforced in nested cgroup. `--cgroupns=private` without the mount fails to boot | 2026-09-25 |
+| D13 | Firecracker guest kernel from CI bucket: newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` that exists | Verified run 1: v1.17.0 binary; v1.16 and v1.17 CI prefixes have no kernel; v1.15 has 6.1.155, boots under KVM in WSL | 2026-09-25 |
+| D14 | DDI auth via gateway token | One token for the simulation; production would use per-device target tokens or mTLS. Target-token mode kept behind a flag | 2026-09-25 |
+| D15 | Rootless rootfs build: `docker export` + `fakeroot mkfs.ext4 -d` | No sudo needed; e2fsprogs 1.47 supports `-d` | 2026-09-25 |
+| D16 | Lab controller: compose service on backend + lab networks (container runtime); host process (Firecracker runtime, needs taps and KVM) | Agent gets only the token API in both cases | 2026-09-25 |
+| D17 | Device-side Python is stdlib only | Small image, no pip in rootfs | 2026-09-25 |
+| D18 | Part A is built by an overnight headless Claude loop with cheap subagents | Save build-day tokens for the agent | 2026-09-25 |
 
 ---
 
@@ -430,24 +523,35 @@ Optional: one Graviton (`t4g.medium`) running the device install natively for AR
 
 | # | Question | Status |
 |---|----------|--------|
-| Q1 | Does the hawkBit Docker image ship an MCP server? What tools does it expose? | TODO(verify) |
-| Q2 | Exact TrueForge API / harness structure for agent integration | TODO(verify) — do not invent |
-| Q3 | TrueFoundry LLM gateway configuration and supported models | TODO(verify) |
-| Q4 | hawkBit DDI polling interval — configurable per target or global? | TODO(verify) |
-| Q5 | Can systemd run as PID 1 in a Docker container without `--privileged`? Likely needs `--cap-add SYS_ADMIN` or `--cgroupns=host` | TODO(verify) |
-| Q6 | AWS credits scope — which services, limits? | TODO(verify) |
-| Q7 | Fluent Bit journald input: does it work when systemd is PID 1 in container? | TODO(verify) |
-| Q8 | hawkBit artifact storage: local filesystem or need MinIO/S3? | TODO(verify) |
+| Q1 | hawkBit MCP server: released image? transport, port, tools | TODO(verify) T2.2 |
+| Q2 | TrueForge API and harness structure | TODO(verify) build day — do not invent |
+| Q3 | TrueFoundry LLM gateway config and models | TODO(verify) build day |
+| Q4 | hawkBit polling interval config (tenant-wide `pollingTime`?) | TODO(verify) T2.1 |
+| Q5 | systemd as PID 1 in Docker without privileged | **Resolved** D12 |
+| Q6 | AWS credits scope and limits | TODO(verify) build day |
+| Q7 | Fluent Bit journald input in a systemd container | TODO(verify) T6.5 |
+| Q8 | hawkBit artifact storage (local FS in container?) | TODO(verify) T2.1 |
+| Q9 | Current hawkBit image names (monolith vs split DDI/Mgmt images) | TODO(verify) T2.1 |
+| Q10 | Fluent Bit `prometheus_remote_write` output: supports adding static labels? | TODO(verify) T6.1; fallback Prometheus agent mode |
+| Q11 | mcp-grafana network transport flag and port | TODO(verify) T10.3 |
+| Q12 | Read-only hawkBit user for the lab controller (permission config) | TODO(verify) T2.1 |
+| Q13 | Can the host reach containers on a Docker `internal: true` network | TODO(verify) T9.2 |
+| Q14 | AWS CLI syntax for nested virtualization on M8i | TODO(verify) T12.1 |
 
 ---
 
 ## 11. Part B — Agent
 
-> Placeholder for hackathon build day.
+> Built on the build day. Not part of this run.
 
-- **Name**: Edge Fleet Triage Agent
-- **Harness**: TrueForge (TODO(verify) API details)
-- **Hosting**: TrueFoundry
-- **Capabilities**: PromQL queries, LogQL queries, hawkBit Management API, sandbox device spawning
-- **Approval gate**: required before any hawkBit write operation (rollout create, target assignment)
-- **Details**: TBD during Part B
+- **Role**: rollout manager. Inventory versions → rehearse on lab devices → canary waves 2 → 5 → all → verify with metrics/logs → promote, halt, or roll back.
+- **Harness**: TrueForge on TrueFoundry (TODO(verify) API).
+- **Tools**: mcp-grafana (PromQL, LogQL, dashboards), hawkBit MCP or `wavebreak_clients.hawkbit`, `wavebreak_clients.lab`.
+- **Sandbox**: generated analysis code runs in the sandbox; device experiments run in the lab zone.
+- **Approval gate**: required before any hawkBit write (rollout create/start, assignment, rollback).
+
+---
+
+## 12. Runbook
+
+> Filled in by T12.5 with exact commands for AWS and the local fallback.

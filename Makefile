@@ -1,7 +1,7 @@
 .PHONY: view up down fleet reset
 
 view:
-	python docs/view/generate.py
+	python3 docs/view/generate.py
 	@echo "Generated docs/view/index.html"
 
 up:
