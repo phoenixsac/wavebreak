@@ -133,7 +133,8 @@ STATUS: IN PROGRESS
 
 | ID | Item | Command | Status |
 |----|------|---------|--------|
-| N1 | Firecracker host networking (bridges, NAT, user-owned taps). Not persistent: rerun after `wsl --shutdown` | `sudo /home/dev/wavebreak/scripts/host/setup-fc-net.sh` | open |
+| N1 | Firecracker host networking (bridges, NAT, user-owned taps). Not persistent: rerun after `wsl --shutdown` | `sudo /home/dev/wavebreak/scripts/host/setup-fc-net.sh` | done 2026-09-25: wbfield0, wblab0, fc-field-1..2, fc-lab-1..2 owned by uid 1001, NAT rule present |
+| N2 | Push commits so EC2 can clone | `git push -u origin master` | done 2026-09-25 |
 
 ## Parked
 
@@ -146,3 +147,4 @@ STATUS: IN PROGRESS
 | When (local) | Run | Tasks completed |
 |--------------|-----|-----------------|
 | 2026-09-25 22:15 | 1 (interactive) | Part A: prompt saved, pre-flight, T1.1–T1.3, tracker, subagents, overnight loop |
+| 2026-09-25 22:30 | 1 (interactive, after go) | Re-checked N1 (host net up) and N2 (pushed); loop ready |
