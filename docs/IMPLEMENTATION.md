@@ -59,7 +59,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T5.1 | Install core (shared): extract to inactive slot, flip `/opt/app/current`, restart unit, health window (default 15s: unit active + heartbeat advancing), rollback on failure, rewrite labels.env, restart fluent-bit; systemctl/paths injectable for tests; pytest | orch | T4.1 | in-progress | — | Hardest semantics; own it |
+| T5.1 | Install core (shared): extract to inactive slot, flip `/opt/app/current`, restart unit, health window (default 15s: unit active + heartbeat advancing), rollback on failure, rewrite labels.env, restart fluent-bit; systemctl/paths injectable for tests; pytest | orch | T4.1 | done | unit | `sim/ota-agent/ota_agent/install.py`; 12 tests (fake systemd + clock): healthy, rollback on crash, no heartbeat + grace, sha mismatch, traversal, labels.env |
 | T5.2 | DDI mode: poll with backoff, configData on registration, deploymentBase handling, download + sha256 check against hawkBit hash, feedback proceeding/success/failure, same-version short-circuit, auth flag gateway-token or target-token; pytest against a mock DDI server | orch | T5.1, T2.1 | todo | — | |
 | T5.3 | Local mode: `ota-agent install <bundle.tar>` CLI + HTTP endpoint (token) POST bundle upload, GET /status; pytest | implementer | T5.1 | todo | — | Lab only |
 
@@ -79,7 +79,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | in-progress | — | |
+| T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | done | static | yaml lint. rev B rule: device i is B iff ceil(i*0.4) > ceil((i-1)*0.4) |
 | T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container (docker CLI, field network, systemd flags); deterministic IDs edge-001..; deterministic hw_rev/region assignment; pytest for the assignment and command generation | implementer | T7.1, T6.2 | todo | — | Firecracker backend added in T8.4 |
 | T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | todo | — | |
 | T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | scaffolder | T7.2, T7.3 | todo | — | |
@@ -88,7 +88,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T8.1 | `sim/runtime/firecracker/fetch.sh`: latest release binary to ~/.local/bin; guest kernel from newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` listing (fall back to older CI dirs) to ~/.local/share/firecracker | scaffolder | — | in-progress | — | Run 1 found: v1.17.0 binary; v1.16/v1.17 CI dirs have no kernel; v1.15 has vmlinux-6.1.155 |
+| T8.1 | `sim/runtime/firecracker/fetch.sh`: latest release binary to ~/.local/bin; guest kernel from newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` listing (fall back to older CI dirs) to ~/.local/share/firecracker | scaffolder | — | done | static | shellcheck; idempotent no-op run; `--dry-run` |
 | T8.2 | `sim/runtime/firecracker/build-rootfs.sh`: docker build → docker export → `fakeroot mkfs.ext4 -d` (rootless) → base.ext4; per-VM copy with `cp --reflink=auto --sparse=always` | orch | T6.3 | todo | — | fakeroot and mkfs.ext4 -d present locally |
 | T8.3 | Guest networking and identity: kernel `ip=` arg for static IP on field or lab bridge, `wavebreak.*` cmdline args → identity unit; RUNTIME=firecracker enables kmsg input | orch | T8.2 | todo | — | |
 | T8.4 | Firecracker backend in fleetctl: per-VM config JSON, API socket, serial log, pidfile under `run/fc/<id>/`; start/stop/status N VMs; tap assignment fc-field-N / fc-lab-N; memory 128 MB lite, 256 MB full | orch | T8.3, T7.2 | todo | — | |

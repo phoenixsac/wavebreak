@@ -1,0 +1,29 @@
+# Fleet definition. Deterministic: device i (1-based) gets id edge-%03d.
+defaults:
+  initial_version: v1.0
+  hawkbit_poll_seconds: 10
+  hw_rev_mix:
+    A: 0.6
+    B: 0.4
+  # Device i (1-based) is rev B iff ceil(i*B) > ceil((i-1)*B): B spread evenly, edge-001 is B
+  regions:
+    - us-east
+    - eu-west
+    - ap-south
+  # Round-robin by index
+  id_prefix: edge
+  lab_id_prefix: lab
+
+profiles:
+  lite:
+    devices: 4
+    memory_max: 48M
+    frame_scale: 1.0
+    vm_mem_mib: 128
+    vm_vcpus: 1
+  full:
+    devices: 20
+    memory_max: 96M
+    frame_scale: 2.0
+    vm_mem_mib: 256
+    vm_vcpus: 1
