@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _identity() -> dict:
@@ -18,7 +18,7 @@ def _identity() -> dict:
 
 def event(name: str, level: str = "info", **fields) -> None:
     rec = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
         "level": level,
         "event": name,
         "component": "ota-agent",

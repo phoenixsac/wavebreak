@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "matrix",
+    "result": [
+      {
+        "metric": {"device_id": "edge-003", "hw_rev": "B"},
+        "values": [
+          [1695600000, "104857600"],
+          [1695600015, "115000000"],
+          [1695600030, "130000000"]
+        ]
+      }
+    ]
+  }
+}

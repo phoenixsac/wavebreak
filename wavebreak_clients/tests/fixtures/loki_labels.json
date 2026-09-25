@@ -1,0 +1,4 @@
+{
+  "status": "success",
+  "data": ["app", "device_id", "hw_rev", "region"]
+}

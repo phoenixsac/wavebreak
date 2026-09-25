@@ -116,7 +116,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T11.1 | `wavebreak_clients/hawkbit.py`: list targets (attributes, installed DS), list DS, create rollout (filter query, groups, success/error conditions), start/pause/resume/stop, rollout + group status, assign DS, action status, download artifact; fixture tests | implementer | T2.1 | todo | — | Endpoints verified in T2.1 or S1 |
-| T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | in-progress | — | |
+| T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
 ### M12 — AWS + runbook + final docs

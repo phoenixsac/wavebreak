@@ -1,0 +1,22 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "streams",
+    "result": [
+      {
+        "stream": {"device_id": "edge-003", "app": "inference-app"},
+        "values": [
+          ["1695600030000000000", "oom-kill: process inference-app killed"],
+          ["1695600010000000000", "starting inference-app v1.2"]
+        ]
+      },
+      {
+        "stream": {"device_id": "edge-003", "app": "ota-agent"},
+        "values": [
+          ["1695600020000000000", "install complete for v1.2"]
+        ]
+      }
+    ],
+    "stats": {}
+  }
+}

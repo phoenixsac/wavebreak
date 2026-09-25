@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {"device_id": "edge-003", "app": "inference-app"},
+        "value": [1695600030, "3"]
+      }
+    ]
+  }
+}

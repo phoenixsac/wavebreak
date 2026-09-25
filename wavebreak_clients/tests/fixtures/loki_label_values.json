@@ -1,0 +1,4 @@
+{
+  "status": "success",
+  "data": ["inference-app", "ota-agent", "node_exporter"]
+}

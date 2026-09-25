@@ -1,0 +1,7 @@
+{
+  "status": "success",
+  "data": [
+    {"__name__": "up", "device_id": "edge-003", "hw_rev": "B"},
+    {"__name__": "up", "device_id": "edge-004", "hw_rev": "A"}
+  ]
+}
