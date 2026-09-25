@@ -32,9 +32,9 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | in-progress | — | Answers Q1, Q4, Q8 |
-| T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | in-progress | — | Do not build with Maven locally |
-| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | todo | — | `docker compose config` for both profiles |
+| T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | done | static | Recorded in architecture.md §5; image inspected; endpoint shapes TODO(verify) in S1 |
+| T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | done | static | hawkbit-mcp-server 1.1.0 jar on Maven Central (standalone, streamable HTTP, 8081). Run on hawkBit image JRE, host port 8082. Fetch script + compose service in T2.3 |
+| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | in-progress | — | `docker compose config` for both profiles |
 | T2.4 | `platform/prometheus/prometheus.yml` (self-scrape only; devices push via remote_write) + `promtool check config` | scaffolder | T2.3 | todo | — | |
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | todo | — | |
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | todo | — | |
@@ -67,7 +67,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | in-progress | — | Record in architecture.md §5 |
+| T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | done | static | architecture.md §5 Fluent Bit table; v5.1.2 apt repo |
 | T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | implementer | T4.2, T5.3 | todo | — | Also the Firecracker rootfs source |
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity (first boot: env or kernel cmdline → identity.env), boot-record (oneshot + ExecStop clean marker, boot_id per start), restarts-metric timer (NRestarts) | implementer | T6.2 | todo | — | |
 | T6.4 | Fluent Bit config: scrape node_exporter → remote_write; journald units inference-app, ota-agent, systemd; kmsg only when RUNTIME=firecracker; tail boot.log → Loki; labels device_id, hw_rev, region, fw_version from labels.env | implementer | T6.1, T6.3 | todo | — | Dry-run in the fluent-bit container |
@@ -108,7 +108,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | scaffolder | T2.3 | todo | — | |
 | T10.2 | Dashboard "Wavebreak Fleet": devices by fw_version and hw_rev, app memory per device, restarts, OOM kills (Loki), boot events, rollout annotations | implementer | T10.1 | todo | — | JSON lint |
-| T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | in-progress | — | |
+| T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
 | T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
 
 ### M11 — wavebreak_clients
@@ -123,7 +123,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | in-progress | — | |
+| T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
 | T12.2 | `infra/aws/launch.sh`: variables at top, SG restricted to caller IP (22, 3000, 8080, MCP, lab API), key pair, 60 GB gp3, user-data → install.sh | implementer | T12.1 | todo | — | untested, mark clearly |
 | T12.3 | `infra/aws/install.sh` (idempotent): Docker, firecracker + kernel, setup-fc-net.sh, repo clone or rsync fallback, make up PROFILE=full → bundles → publish → fleet (firecracker, fallback container if no /dev/kvm) → seed → grafana-sa → print URLs and tokens | implementer | T12.2, T7.4, T8.1 | todo | — | |
 | T12.4 | Makefile complete: up, down, bundles, publish, fleet, fleet-down, seed, lab, view, test, lint, smoke-*, all; `.env.example` complete (Grafana + MCP, hawkBit Mgmt + MCP, lab controller, DDI token) | scaffolder | T12.3 | todo | — | |

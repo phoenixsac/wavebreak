@@ -195,7 +195,7 @@ Bundle layout: `sim/bundles/vX.Y/{manifest.json, app/, config.yaml}` → `build/
 | Loki | logs | single binary, filesystem storage |
 | Grafana | dashboards | provisioned datasources + "Wavebreak Fleet" dashboard |
 | mcp-grafana | agent tool server | official Grafana MCP, read-only service account, network transport |
-| hawkBit MCP | agent tool server | only if a released artifact exists (T2.2); else agent wraps `wavebreak_clients.hawkbit` |
+| hawkBit MCP | agent tool server | `hawkbit-mcp-server` jar from Maven Central, run on the hawkBit image's JRE; streamable HTTP, port 8082 |
 
 ### 3.6 Runtimes
 
@@ -321,6 +321,21 @@ sequenceDiagram
 
 Endpoint facts below come from hawkBit docs and are **TODO(verify)** against the running server's OpenAPI (T2.1, S1) unless marked verified.
 
+hawkBit server facts (T2.1; image inspected, rest read from docs):
+
+| Item | Value |
+|------|-------|
+| Image | `hawkbit/hawkbit-update-server:1.1.0` (monolith: UI, DDI, Management API; `PROFILES=h2` default). Split images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
+| Heap | entrypoint uses `X_MS`, `X_MX`, `XX_MAX_METASPACE_SIZE`, `XX_METASPACE_SIZE`, `JAVA_OPTS` env (defaults 768m heap, 250m metaspace) |
+| DB (full) | official compose `docker/mysql/docker-compose-monolith-mysql.yml`: `PROFILES=mysql`, `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` |
+| Users | default admin/admin; `hawkbit.server.im.users[n].username/password/permissions` (e.g. `READ_REPOSITORY,READ_TARGET` for the read-only lab user) |
+| Tenant | `DEFAULT` |
+| Tenant configs | `PUT /rest/v1/system/configs/{key}` body `{"value": ...}`; keys `authentication.gatewaytoken.enabled`, `authentication.gatewaytoken.key`, `authentication.targettoken.enabled`, `pollingTime` (`HH:MM:SS`) |
+| Artifacts | `org.eclipse.hawkbit.repository.file.path` (default `./artifactrepo`, i.e. `/app/artifactrepo`) |
+| OpenAPI | `http://<host>:8080/swagger-ui/index.html` |
+
+hawkBit MCP server (T2.2): standalone Spring Boot jar `org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0` on Maven Central (54 MB, no build needed). Runs on the JRE of the hawkBit image (`java -jar`). Properties: `server.port=8081`, `spring.ai.mcp.server.protocol=STREAMABLE` (path `/mcp`, TODO(verify) S1), `hawkbit.mcp.mgmt-url=${HAWKBIT_URL}`. Clients send their own hawkBit credentials as `Authorization: Basic ...`; the server validates them against hawkBit and forwards. Operation switches: `hawkbit.mcp.operations.delete-enabled`, `hawkbit.mcp.operations.rollouts.start-enabled`, `...approve-enabled`. Tools cover targets, target filters, software modules, distribution sets, rollouts (create/start/pause/resume/stop/approve/deny/retry/trigger-next-group), actions.
+
 ### hawkBit DDI API (device-facing)
 
 | Endpoint | Method | Purpose |
@@ -383,16 +398,21 @@ Auth: `Authorization: Bearer <LAB_API_TOKEN>`. Port 8090.
 | Metrics | Prometheus remote_write | `http://<backend>:9090/api/v1/write` |
 | Logs | Loki push | `http://<backend>:3100/loki/api/v1/push` |
 
-### Fluent Bit pipeline (TODO(verify) plugin names and options, T6.1)
+### Fluent Bit pipeline (T6.1; docs read, options confirmed via `--help` of fluent/fluent-bit 5.1.2)
+
+Install on Debian bookworm: apt repo `https://packages.fluentbit.io/debian/bookworm bookworm main`, key `https://packages.fluentbit.io/fluentbit.key`, package `fluent-bit`, binary `/opt/fluent-bit/bin/fluent-bit`. Config validation: `fluent-bit --dry-run -c <file>` (property names validated since 4.2).
 
 | Stage | Plugin | Config |
 |-------|--------|--------|
-| input | `prometheus_scrape` | `127.0.0.1:9100/metrics`, 15s |
-| input | `systemd` | units inference-app, ota-agent, systemd |
-| input | `kmsg` | Firecracker only |
-| input | `tail` | `/var/log/wavebreak/boot.log` |
-| output | `prometheus_remote_write` | labels from labels.env |
-| output | `loki` | labels device_id, hw_rev, region, fw_version, source |
+| input | `prometheus_scrape` | `host 127.0.0.1`, `port 9100`, `metrics_path /metrics`, `scrape_interval 15s` |
+| input | `systemd` | `systemd_filter _SYSTEMD_UNIT=inference-app.service` (one line per unit), `systemd_filter_type or`, `read_from_tail on`, `strip_underscores on`, `lowercase on`, `db` |
+| input | `kmsg` | Firecracker only (`prio_level`) |
+| input | `tail` | `path /var/log/wavebreak/boot.log`, `parser json`, `db` |
+| filter | `record_modifier` | `record source journal` etc. per input tag |
+| output | `prometheus_remote_write` | `host`, `port 9090`, `uri /api/v1/write`, `add_label device_id ${DEVICE_ID}` (repeatable), `retry_limit` |
+| output | `loki` | `labels device_id=${DEVICE_ID}, hw_rev=${HW_REV}, region=${REGION}, fw_version=${FW_VERSION}, $source`, `line_format json` |
+
+Labels come from `/etc/wavebreak/labels.env` via the unit's `EnvironmentFile`; `${VAR}` is substituted when the config is loaded, so ota-agent restarts Fluent Bit after rewriting the file. TODO(verify) T6.5: env substitution inside the loki `labels` value (docs only show it generically).
 
 ### Ports
 
@@ -402,7 +422,8 @@ Auth: `Authorization: Bearer <LAB_API_TOKEN>`. Port 8090.
 | 9090 | Prometheus |
 | 3100 | Loki |
 | 3000 | Grafana |
-| 8000 | mcp-grafana (TODO(verify)) |
+| 8082 | hawkBit MCP (container 8081, `/mcp`) |
+| 8000 | mcp-grafana (`-t streamable-http`, path `/mcp`) |
 | 8090 | Lab controller |
 | 8081 | ota-agent local API (lab devices) |
 | 9100 | node_exporter (device-local) |
@@ -486,7 +507,7 @@ Every series carries `device_id`, `hw_rev`, `region`, `fw_version` (added by Flu
 |--|------------------|-----------------|
 | Profile | lite (4 devices, H2) | full (20 devices, hawkBit DB) |
 | Runtime | container; Firecracker for one-VM smoke | firecracker (fallback container if no `/dev/kvm`) |
-| Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via CPU options (TODO(verify) CLI syntax), Ubuntu 24.04, 60 GB gp3 |
+| Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via `--cpu-options NestedVirtualization=enabled` (AWS CLI >= 2.36), Ubuntu 24.04, 60 GB gp3 |
 | Access | localhost | SG restricted to caller IP: 22, 3000, 8080, MCP, 8090 |
 | Bootstrap | Makefile targets | `infra/aws/launch.sh` → user-data → `infra/aws/install.sh` |
 
@@ -516,6 +537,9 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D16 | Lab controller: compose service on backend + lab networks (container runtime); host process (Firecracker runtime, needs taps and KVM) | Agent gets only the token API in both cases | 2026-09-25 |
 | D17 | Device-side Python is stdlib only | Small image, no pip in rootfs | 2026-09-25 |
 | D18 | Part A is built by an overnight headless Claude loop with cheap subagents | Save build-day tokens for the agent | 2026-09-25 |
+| D19 | hawkBit MCP runs the Maven Central jar on the hawkBit image's JRE (fetched by `scripts/fetch-hawkbit-mcp.sh` into `build/`) | No official image; no local Maven build (RAM) | 2026-09-25 |
+| D20 | Release source lives in `sim/bundles/vX.Y/` (full copies); `sim/inference-app/` holds the shared tests | Releases must be real, diffable code; bundles are what hawkBit ships | 2026-09-25 |
+| D21 | Rev B assignment: device i is B iff ceil(0.4 i) > ceil(0.4 (i-1)) | Deterministic, evenly spread; edge-001 is B so a 2-device canary wave includes rev B | 2026-09-25 |
 
 ---
 
@@ -523,20 +547,20 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 
 | # | Question | Status |
 |---|----------|--------|
-| Q1 | hawkBit MCP server: released image? transport, port, tools | TODO(verify) T2.2 |
+| Q1 | hawkBit MCP server: released image? transport, port, tools | **Resolved** T2.2: jar on Maven Central, streamable HTTP, port 8081 (host 8082), see §5 |
 | Q2 | TrueForge API and harness structure | TODO(verify) build day — do not invent |
 | Q3 | TrueFoundry LLM gateway config and models | TODO(verify) build day |
-| Q4 | hawkBit polling interval config (tenant-wide `pollingTime`?) | TODO(verify) T2.1 |
+| Q4 | hawkBit polling interval config (tenant-wide `pollingTime`?) | **Resolved** T2.1 (docs): tenant config `pollingTime` `HH:MM:SS` |
 | Q5 | systemd as PID 1 in Docker without privileged | **Resolved** D12 |
 | Q6 | AWS credits scope and limits | TODO(verify) build day |
 | Q7 | Fluent Bit journald input in a systemd container | TODO(verify) T6.5 |
-| Q8 | hawkBit artifact storage (local FS in container?) | TODO(verify) T2.1 |
-| Q9 | Current hawkBit image names (monolith vs split DDI/Mgmt images) | TODO(verify) T2.1 |
-| Q10 | Fluent Bit `prometheus_remote_write` output: supports adding static labels? | TODO(verify) T6.1; fallback Prometheus agent mode |
-| Q11 | mcp-grafana network transport flag and port | TODO(verify) T10.3 |
-| Q12 | Read-only hawkBit user for the lab controller (permission config) | TODO(verify) T2.1 |
+| Q8 | hawkBit artifact storage (local FS in container?) | **Resolved** T2.1: `/app/artifactrepo` (property `org.eclipse.hawkbit.repository.file.path`); volume in compose |
+| Q9 | Current hawkBit image names (monolith vs split DDI/Mgmt images) | **Resolved** T2.1: monolith `hawkbit/hawkbit-update-server:1.1.0` |
+| Q10 | Fluent Bit `prometheus_remote_write` output: supports adding static labels? | **Resolved** T6.1: `add_label <name> <value>`, repeatable |
+| Q11 | mcp-grafana network transport flag and port | **Resolved** T10.3: image `grafana/mcp-grafana`, `-t streamable-http -address 0.0.0.0:8000`, path `/mcp`, env `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`, `--disable-write`; optional `MCP_GRAFANA_SERVER_TOKEN` for caller auth |
+| Q12 | Read-only hawkBit user for the lab controller (permission config) | T2.1 docs: `hawkbit.server.im.users[1].permissions=READ_REPOSITORY,READ_TARGET`; TODO(verify) S1 |
 | Q13 | Can the host reach containers on a Docker `internal: true` network | TODO(verify) T9.2 |
-| Q14 | AWS CLI syntax for nested virtualization on M8i | TODO(verify) T12.1 |
+| Q14 | AWS CLI syntax for nested virtualization on M8i | **Resolved** T12.1 (docs read): `aws ec2 run-instances --cpu-options NestedVirtualization=enabled`, AWS CLI v2 >= 2.36; AMI `resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id` (gp2 path also exists). AWS CLI not installed locally |
 
 ---
 
