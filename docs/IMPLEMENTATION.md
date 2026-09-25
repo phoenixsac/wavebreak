@@ -32,8 +32,8 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | todo | — | Answers Q1, Q4, Q8 |
-| T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | todo | — | Do not build with Maven locally |
+| T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | in-progress | — | Answers Q1, Q4, Q8 |
+| T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | in-progress | — | Do not build with Maven locally |
 | T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | todo | — | `docker compose config` for both profiles |
 | T2.4 | `platform/prometheus/prometheus.yml` (self-scrape only; devices push via remote_write) + `promtool check config` | scaffolder | T2.3 | todo | — | |
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | todo | — | |
@@ -52,14 +52,14 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T4.1 | inference-app v1.0 (Python stdlib): camera loop, frame size by HW_REV (A 1080p, B 4K, scaled bytes, configurable), JSON log lines with fw_version and labels, textfile metrics every 5s (atomic write) incl. cgroup memory.current, config reload every ~45s, heartbeat metric; pytest | implementer | — | todo | — | Metric names in architecture.md §6 |
-| T4.2 | Releases `sim/bundles/v1.0` … `v1.4` (manifest.json, app/, config.yaml) as real code diffs: v1.1 latency metric; v1.2 unbounded 4K enhancement buffer (rev B only, leak pace configurable, OOM ~3 min); v1.3 renamed config key read on first reload → crash; v1.4 bounded buffer. Tests for leak and crash logic | implementer | T4.1 | todo | — | Faults are code, never fake logs |
+| T4.1 | inference-app v1.0 (Python stdlib): camera loop, frame size by HW_REV (A 1080p, B 4K, scaled bytes, configurable), JSON log lines with fw_version and labels, textfile metrics every 5s (atomic write) incl. cgroup memory.current, config reload every ~45s, heartbeat metric; pytest | implementer | — | in-progress | — | Metric names in architecture.md §6 |
+| T4.2 | Releases `sim/bundles/v1.0` … `v1.4` (manifest.json, app/, config.yaml) as real code diffs: v1.1 latency metric; v1.2 unbounded 4K enhancement buffer (rev B only, leak pace configurable, OOM ~3 min); v1.3 renamed config key read on first reload → crash; v1.4 bounded buffer. Tests for leak and crash logic | implementer | T4.1 | in-progress | — | Faults are code, never fake logs |
 
 ### M5 — ota-agent
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T5.1 | Install core (shared): extract to inactive slot, flip `/opt/app/current`, restart unit, health window (default 15s: unit active + heartbeat advancing), rollback on failure, rewrite labels.env, restart fluent-bit; systemctl/paths injectable for tests; pytest | orch | T4.1 | todo | — | Hardest semantics; own it |
+| T5.1 | Install core (shared): extract to inactive slot, flip `/opt/app/current`, restart unit, health window (default 15s: unit active + heartbeat advancing), rollback on failure, rewrite labels.env, restart fluent-bit; systemctl/paths injectable for tests; pytest | orch | T4.1 | in-progress | — | Hardest semantics; own it |
 | T5.2 | DDI mode: poll with backoff, configData on registration, deploymentBase handling, download + sha256 check against hawkBit hash, feedback proceeding/success/failure, same-version short-circuit, auth flag gateway-token or target-token; pytest against a mock DDI server | orch | T5.1, T2.1 | todo | — | |
 | T5.3 | Local mode: `ota-agent install <bundle.tar>` CLI + HTTP endpoint (token) POST bundle upload, GET /status; pytest | implementer | T5.1 | todo | — | Lab only |
 
@@ -67,7 +67,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | todo | — | Record in architecture.md §5 |
+| T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | in-progress | — | Record in architecture.md §5 |
 | T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | implementer | T4.2, T5.3 | todo | — | Also the Firecracker rootfs source |
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity (first boot: env or kernel cmdline → identity.env), boot-record (oneshot + ExecStop clean marker, boot_id per start), restarts-metric timer (NRestarts) | implementer | T6.2 | todo | — | |
 | T6.4 | Fluent Bit config: scrape node_exporter → remote_write; journald units inference-app, ota-agent, systemd; kmsg only when RUNTIME=firecracker; tail boot.log → Loki; labels device_id, hw_rev, region, fw_version from labels.env | implementer | T6.1, T6.3 | todo | — | Dry-run in the fluent-bit container |
@@ -79,7 +79,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | todo | — | |
+| T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | in-progress | — | |
 | T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container (docker CLI, field network, systemd flags); deterministic IDs edge-001..; deterministic hw_rev/region assignment; pytest for the assignment and command generation | implementer | T7.1, T6.2 | todo | — | Firecracker backend added in T8.4 |
 | T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | todo | — | |
 | T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | scaffolder | T7.2, T7.3 | todo | — | |
@@ -88,7 +88,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T8.1 | `sim/runtime/firecracker/fetch.sh`: latest release binary to ~/.local/bin; guest kernel from newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` listing (fall back to older CI dirs) to ~/.local/share/firecracker | scaffolder | — | todo | — | Run 1 found: v1.17.0 binary; v1.16/v1.17 CI dirs have no kernel; v1.15 has vmlinux-6.1.155 |
+| T8.1 | `sim/runtime/firecracker/fetch.sh`: latest release binary to ~/.local/bin; guest kernel from newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` listing (fall back to older CI dirs) to ~/.local/share/firecracker | scaffolder | — | in-progress | — | Run 1 found: v1.17.0 binary; v1.16/v1.17 CI dirs have no kernel; v1.15 has vmlinux-6.1.155 |
 | T8.2 | `sim/runtime/firecracker/build-rootfs.sh`: docker build → docker export → `fakeroot mkfs.ext4 -d` (rootless) → base.ext4; per-VM copy with `cp --reflink=auto --sparse=always` | orch | T6.3 | todo | — | fakeroot and mkfs.ext4 -d present locally |
 | T8.3 | Guest networking and identity: kernel `ip=` arg for static IP on field or lab bridge, `wavebreak.*` cmdline args → identity unit; RUNTIME=firecracker enables kmsg input | orch | T8.2 | todo | — | |
 | T8.4 | Firecracker backend in fleetctl: per-VM config JSON, API socket, serial log, pidfile under `run/fc/<id>/`; start/stop/status N VMs; tap assignment fc-field-N / fc-lab-N; memory 128 MB lite, 256 MB full | orch | T8.3, T7.2 | todo | — | |
@@ -108,7 +108,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | scaffolder | T2.3 | todo | — | |
 | T10.2 | Dashboard "Wavebreak Fleet": devices by fw_version and hw_rev, app memory per device, restarts, OOM kills (Loki), boot events, rollout annotations | implementer | T10.1 | todo | — | JSON lint |
-| T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | todo | — | |
+| T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | in-progress | — | |
 | T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
 
 ### M11 — wavebreak_clients
@@ -116,14 +116,14 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T11.1 | `wavebreak_clients/hawkbit.py`: list targets (attributes, installed DS), list DS, create rollout (filter query, groups, success/error conditions), start/pause/resume/stop, rollout + group status, assign DS, action status, download artifact; fixture tests | implementer | T2.1 | todo | — | Endpoints verified in T2.1 or S1 |
-| T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | todo | — | |
+| T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | in-progress | — | |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
 ### M12 — AWS + runbook + final docs
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | todo | — | |
+| T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | in-progress | — | |
 | T12.2 | `infra/aws/launch.sh`: variables at top, SG restricted to caller IP (22, 3000, 8080, MCP, lab API), key pair, 60 GB gp3, user-data → install.sh | implementer | T12.1 | todo | — | untested, mark clearly |
 | T12.3 | `infra/aws/install.sh` (idempotent): Docker, firecracker + kernel, setup-fc-net.sh, repo clone or rsync fallback, make up PROFILE=full → bundles → publish → fleet (firecracker, fallback container if no /dev/kvm) → seed → grafana-sa → print URLs and tokens | implementer | T12.2, T7.4, T8.1 | todo | — | |
 | T12.4 | Makefile complete: up, down, bundles, publish, fleet, fleet-down, seed, lab, view, test, lint, smoke-*, all; `.env.example` complete (Grafana + MCP, hawkBit Mgmt + MCP, lab controller, DDI token) | scaffolder | T12.3 | todo | — | |
