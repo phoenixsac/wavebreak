@@ -181,16 +181,17 @@ Bundle layout: `sim/bundles/vX.Y/{manifest.json, app/, config.yaml}` → `build/
 
 ### 3.4 Rehearsal Lab
 
-- `lab/controller` (FastAPI, token auth). The agent gets only this API: no Docker socket, no root.
-- Boots throwaway devices at a version, installs a candidate fetched **read-only** from hawkBit's Management API, and reports a summary read directly from the device (ota-agent `/status` + node_exporter scrape).
-- Isolation: container runtime → internal Docker network with no route to the backend (controller attaches to both); Firecracker → `wblab0` bridge without NAT or forwarding.
+- `lab/controller` (FastAPI, token auth). The agent gets only this API: no Docker socket, no root. The controller alone mounts the Docker socket.
+- Boots throwaway devices at a requested revision and version, installs a candidate fetched **read-only** from hawkBit's Management API, and reports a summary read directly from the device (ota-agent `/status` + node_exporter scrape).
+- Isolation: container runtime → internal Docker network `wavebreak_lab` with no route to the backend; the controller attaches to `backend` and `wavebreak_lab`. Firecracker → `wblab0` bridge without NAT or forwarding.
 - Lab devices never talk to production hawkBit, Prometheus, or Loki (ota-agent in local mode, Fluent Bit outputs disabled).
 
 ### 3.5 Backend
 
 | Service | Role | Notes |
 |---------|------|-------|
-| hawkBit | update server + UI | lite: embedded H2, heap capped. full: DB from hawkBit's official compose |
+| hawkBit update server | DDI + Management API | `hawkbit/hawkbit-update-server:1.1.0`; lite: file-backed H2 in artifact volume, heap capped. full: MySQL |
+| hawkBit UI | Optional browser UI, separate image | `hawkbit/hawkbit-ui:1.1.0`; full profile enables it, lite requires `HAWKBIT_UI=1`; UI calls the server Management API |
 | Prometheus | metrics | `--web.enable-remote-write-receiver`; devices push |
 | Loki | logs | single binary, filesystem storage |
 | Grafana | dashboards | provisioned datasources + "Wavebreak Fleet" dashboard |
@@ -422,14 +423,15 @@ Labels come from `/etc/wavebreak/labels.env` via the unit's `EnvironmentFile`; `
 
 | Port | Service |
 |------|---------|
-| 8080 | hawkBit (UI, DDI, Management API) |
+| 8080 | hawkBit DDI + Management API |
+| 8081 | hawkBit UI (optional; UI container port 8080) |
 | 9090 | Prometheus |
 | 3100 | Loki |
 | 3000 | Grafana |
 | 8082 | hawkBit MCP (container 8081, `/mcp`) |
 | 8000 | mcp-grafana (`-t streamable-http`, path `/mcp`) |
 | 8090 | Lab controller |
-| 8081 | ota-agent local API (lab devices) |
+| 8081 | ota-agent local API (inside each lab device container) |
 | 9100 | node_exporter (device-local) |
 
 ---

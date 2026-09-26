@@ -1,6 +1,7 @@
 # PROFILE=lite|full  RUNTIME=container|firecracker
 PROFILE ?= lite
 RUNTIME ?= container
+LAB_CONTROLLER_PORT ?= 8090
 export PROFILE RUNTIME
 
 ENV_FILE := $(if $(wildcard .env),.env,.env.example)
@@ -52,7 +53,9 @@ seed:
 	./scripts/seed.sh
 
 lab:
-	$(COMPOSE) --profile lab up -d lab-controller
+	@docker image inspect wavebreak-device:local >/dev/null 2>&1 || docker build -f sim/device/Dockerfile -t wavebreak-device:local .
+	$(COMPOSE) --profile lab up -d --build lab-controller
+	./scripts/wait-http.sh http://localhost:$(LAB_CONTROLLER_PORT)/healthz 120
 
 e2e:
 	./scripts/e2e.sh
