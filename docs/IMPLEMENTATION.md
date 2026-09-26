@@ -111,7 +111,7 @@ STATUS: IN PROGRESS
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
 | T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | done | smoke | Provisioned dashboard API lists five panels; Grafana PromQL and Loki LogQL accepted the panel queries. |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
-| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
+| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | parked | — | Optional agent/MCP authentication; not required for the human-facing dashboard MVP. |
 
 ### M11 — wavebreak_clients
 
@@ -119,7 +119,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | done | smoke | Live hawkBit OpenAPI verified. Created an unstarted rollout for edge-001; it settled at ready with one group while installedDS remained v1.0. start is a separate method. Ruff passes. |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
-| T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
+| T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | parked | — | Agent-side HTTP wrapper is outside the minimal controller MVP; controller endpoints are live and documented for the separate agent branch. |
 
 ### M12 — AWS + runbook + final docs
 
@@ -128,7 +128,7 @@ STATUS: IN PROGRESS
 | T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
 | T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
-| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | in-progress | — | Check container profiles, optional UI and lab port defaults, cleanup targets, and exact runbook commands. |
+| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
 | T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | todo | — | |
 
 ## Needs human
@@ -144,7 +144,7 @@ STATUS: IN PROGRESS
 |----|--------|-------------------------------|
 | Firecracker runtime (T8.1–T8.5) | Outside container-only MVP scope | Resume only if the build requires Firecracker |
 | AWS launch (T12.2–T12.3) | Outside MVP scope | Deploy container fallback manually only if needed |
-| Extra docs polish, AWS/full profile, optional MCP integration work | Outside MVP scope | Do not resume for this handoff |
+| Full-profile live fleet smoke, Grafana service-account automation, and agent-side lab wrapper | Outside local MVP scope; full fleet exceeds the local memory cap and the agent runs on another branch | Use the full profile on a sufficiently provisioned host; implement agent-side clients with the agent integration |
 
 ## Run log
 
@@ -165,3 +165,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex build | Completed and smoke-tested isolated lab controller with read-only hawkBit artifact access; deleted lab device (T9.1–T9.3) |
 | 2026-09-26 | Codex build | Provisioned Wavebreak Fleet dashboard; verified Grafana loads five panels and Prometheus/Loki accept all queries (T10.2) |
 | 2026-09-26 | Codex build | Added separate optional hawkBit UI 1.1.0; smoke-tested lite opt-in at :8081 with a 384 MiB heap cap (T2.9) |
+| 2026-09-26 | Codex build | Reconciled T6.2, completed Makefile/env coverage, and parked optional Grafana SA + agent-side lab client tasks outside the local MVP |
