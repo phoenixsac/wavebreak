@@ -332,7 +332,9 @@ hawkBit server facts (T2.1; image inspected, rest read from docs):
 | Tenant | `DEFAULT` |
 | Tenant configs | `PUT /rest/v1/system/configs/{key}` body `{"value": ...}`; keys `authentication.gatewaytoken.enabled`, `authentication.gatewaytoken.key`, `authentication.targettoken.enabled`, `pollingTime` (`HH:MM:SS`) |
 | Artifacts | `org.eclipse.hawkbit.repository.file.path` (default `./artifactrepo`, i.e. `/app/artifactrepo`) |
-| OpenAPI | `http://<host>:8080/swagger-ui/index.html` |
+| OpenAPI | `http://<host>:8080/swagger-ui/index.html`, JSON `/v3/api-docs` (verified; no `/actuator/health`, image has no curl) |
+| Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab user with `READ_REPOSITORY,READ_TARGET`: GET 200, POST 403 |
+| Polling (verified) | tenant `pollingTime` min is 30s unless `-Dhawkbit.controller.minPollingTime=00:00:05`; tenant config path is `/rest/v1/system/configs/{key}` |
 
 hawkBit MCP server (T2.2): standalone Spring Boot jar `org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0` on Maven Central (54 MB, no build needed). Runs on the JRE of the hawkBit image (`java -jar`). Properties: `server.port=8081`, `spring.ai.mcp.server.protocol=STREAMABLE` (path `/mcp`, TODO(verify) S1), `hawkbit.mcp.mgmt-url=${HAWKBIT_URL}`. Clients send their own hawkBit credentials as `Authorization: Basic ...`; the server validates them against hawkBit and forwards. Operation switches: `hawkbit.mcp.operations.delete-enabled`, `hawkbit.mcp.operations.rollouts.start-enabled`, `...approve-enabled`. Tools cover targets, target filters, software modules, distribution sets, rollouts (create/start/pause/resume/stop/approve/deny/retry/trigger-next-group), actions.
 
@@ -366,7 +368,7 @@ Auth header: `Authorization: GatewayToken <token>` (or `TargetToken <token>`), b
 | `/rest/v1/rollouts` | GET, POST | List / create rollout (targetFilterQuery, amountGroups or groups, success/error conditions) |
 | `/rest/v1/rollouts/{id}/start`, `/pause`, `/resume` | POST | Control rollout |
 | `/rest/v1/rollouts/{id}/deploygroups` | GET | Group status |
-| `/rest/system/configs/{key}` | PUT | Tenant config (gateway token, polling) |
+| `/rest/v1/system/configs/{key}` | PUT | Tenant config (gateway token, polling); verified |
 
 Auth: HTTP basic (user from `.env`).
 
@@ -539,6 +541,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D18 | Part A is built by an overnight headless Claude loop with cheap subagents | Save build-day tokens for the agent | 2026-09-25 |
 | D19 | hawkBit MCP runs the Maven Central jar on the hawkBit image's JRE (fetched by `scripts/fetch-hawkbit-mcp.sh` into `build/`) | No official image; no local Maven build (RAM) | 2026-09-25 |
 | D20 | Release source lives in `sim/bundles/vX.Y/` (full copies); `sim/inference-app/` holds the shared tests | Releases must be real, diffable code; bundles are what hawkBit ships | 2026-09-25 |
+| D22 | Lite hawkBit uses in-memory H2 (image default); state resets on container recreate, rerun `make publish seed` | Simplest; no H2 URL override that could clash with the full profile | 2026-09-26 |
 | D21 | Rev B assignment: device i is B iff ceil(0.4 i) > ceil(0.4 (i-1)) | Deterministic, evenly spread; edge-001 is B so a 2-device canary wave includes rev B | 2026-09-25 |
 
 ---

@@ -1,0 +1,142 @@
+# Wavebreak backend zone. Variables come from ../.env (see .env.example).
+# PROFILE=lite: hawkBit on embedded H2. PROFILE=full: `--profile full` adds MySQL.
+# `--profile mcp` adds the hawkBit MCP server (needs scripts/fetch-hawkbit-mcp.sh first).
+name: wavebreak
+
+networks:
+  backend:
+  field:
+    name: wavebreak_field
+  lab:
+    name: wavebreak_lab
+    internal: true
+
+volumes:
+  hawkbit-artifacts:
+  hawkbit-db:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+
+services:
+  hawkbit-db:
+    image: mysql:8.0
+    profiles: [full]
+    environment:
+      MYSQL_DATABASE: hawkbit
+      MYSQL_ALLOW_EMPTY_PASSWORD: "true"
+    volumes:
+      - hawkbit-db:/var/lib/mysql
+    networks: [backend]
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 12
+    restart: unless-stopped
+
+  hawkbit:
+    image: ${HAWKBIT_IMAGE:-hawkbit/hawkbit-update-server:1.1.0}
+    env_file:
+      - hawkbit/${PROFILE:-lite}.env
+    environment:
+      X_MS: 128m
+      X_MX: ${HAWKBIT_HEAP:-512m}
+      XX_METASPACE_SIZE: 128m
+      XX_MAX_METASPACE_SIZE: 200m
+      # Admin (TENANT_ADMIN) and read-only lab user; keys verified in TenantAwareUserProperties (1.1.0)
+      JAVA_OPTS: >-
+        -Dhawkbit.security.user.admin.password={noop}${HAWKBIT_PASSWORD:-admin}
+        -Dhawkbit.security.user.lab.tenant=DEFAULT
+        -Dhawkbit.security.user.lab.password={noop}${HAWKBIT_LAB_PASSWORD:-lab}
+        -Dhawkbit.security.user.lab.permissions=READ_REPOSITORY,READ_TARGET
+        -Dhawkbit.controller.minPollingTime=00:00:05
+    volumes:
+      - hawkbit-artifacts:/app/artifactrepo
+    ports:
+      - "${HAWKBIT_PORT:-8080}:8080"
+    networks: [backend, field]
+    depends_on:
+      hawkbit-db:
+        condition: service_healthy
+        required: false
+    mem_limit: ${HAWKBIT_MEM:-900m}
+    restart: unless-stopped
+
+  hawkbit-mcp:
+    image: ${HAWKBIT_IMAGE:-hawkbit/hawkbit-update-server:1.1.0}
+    profiles: [mcp]
+    entrypoint: ["java", "-Xmx192m", "-jar", "/mcp/hawkbit-mcp-server.jar"]
+    environment:
+      SERVER_PORT: "8081"
+      SPRING_AI_MCP_SERVER_PROTOCOL: STREAMABLE
+      HAWKBIT_MCP_MGMT_URL: http://hawkbit:8080
+    volumes:
+      - ../build/hawkbit-mcp:/mcp:ro
+    ports:
+      - "${HAWKBIT_MCP_PORT:-8082}:8081"
+    networks: [backend]
+    depends_on: [hawkbit]
+    mem_limit: 320m
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+      - --web.enable-remote-write-receiver
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks: [backend, field]
+    mem_limit: 384m
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks: [backend, field]
+    mem_limit: 384m
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks: [backend]
+    depends_on: [prometheus, loki]
+    mem_limit: 256m
+    restart: unless-stopped
+
+  mcp-grafana:
+    image: ${MCP_GRAFANA_IMAGE:-grafana/mcp-grafana:latest}
+    entrypoint: ["/app/mcp-grafana", "-t", "streamable-http", "-address", "0.0.0.0:8000", "--disable-write"]
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: ${GRAFANA_SA_TOKEN:-}
+    ports:
+      - "${MCP_GRAFANA_PORT:-8000}:8000"
+    networks: [backend]
+    depends_on: [grafana]
+    mem_limit: 128m
+    restart: unless-stopped
