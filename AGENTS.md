@@ -115,3 +115,10 @@ Loop: `tmux new -s night` → `./scripts/overnight.sh`. Each run: `claude -p "Co
 8. **Small commits** with clear messages.
 9. **Record decisions** in `docs/architecture.md` §9.
 10. **RAM budget ~2.5 GB locally**: one heavy component group at a time; tear down after every smoke test; never run the full fleet locally.
+
+## Cost discipline (all tools)
+- Default to medium reasoning. Use high reasoning only for: ota-agent install/rollback semantics, Firecracker runtime, hawkBit integration, debugging a failing smoke test.
+- Mechanical work (configs, compose, Makefile, docs formatting, renames) should be done quickly without extended reasoning.
+- If the tool supports subagents or cheaper models, delegate mechanical and verification tasks to them.
+- Read only the files needed for the current task; don't re-read large docs every step.
+- One task at a time; commit after each; update docs/IMPLEMENTATION.md.
