@@ -1,0 +1,13 @@
+[Unit]
+Description=Prometheus node_exporter (+ Wavebreak textfile metrics)
+After=wavebreak-identity.service
+
+[Service]
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=:9100 \
+  --collector.textfile.directory=/var/lib/node_exporter/textfile \
+  --collector.disable-defaults --collector.textfile --collector.meminfo --collector.loadavg \
+  --collector.cpu --collector.stat --collector.time --collector.uname
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

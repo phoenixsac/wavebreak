@@ -1,0 +1,20 @@
+[Unit]
+Description=Wavebreak inference-app (camera-AI loop, active slot /opt/app/current)
+Requires=wavebreak-identity.service
+After=wavebreak-identity.service wavebreak-boot-record.service
+# keep restarting forever: a crash loop must stay visible, not stop after 5 tries
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/etc/wavebreak/identity.env
+EnvironmentFile=-/etc/wavebreak/device.env
+ExecStart=/usr/bin/python3 /opt/app/current/app/inference_app.py --bundle-dir /opt/app/current $APP_ARGS
+Restart=always
+RestartSec=2
+# MemoryMax and MemorySwapMax=0 are set at boot by wavebreak-identity (profile value)
+MemoryMax=48M
+MemorySwapMax=0
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

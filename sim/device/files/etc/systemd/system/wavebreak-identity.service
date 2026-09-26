@@ -1,0 +1,13 @@
+[Unit]
+Description=Wavebreak device identity (env or kernel cmdline -> /etc/wavebreak)
+DefaultDependencies=no
+After=local-fs.target
+Before=wavebreak-boot-record.service inference-app.service ota-agent.service fluent-bit.service node_exporter.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/wavebreak/identity.sh
+
+[Install]
+WantedBy=multi-user.target

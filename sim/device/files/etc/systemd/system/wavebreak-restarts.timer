@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh inference-app restart metric every 5s
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

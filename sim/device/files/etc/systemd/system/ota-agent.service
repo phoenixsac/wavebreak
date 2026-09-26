@@ -1,0 +1,15 @@
+[Unit]
+Description=Wavebreak ota-agent (ddi in the field, local API in the lab)
+Requires=wavebreak-identity.service
+After=wavebreak-identity.service network-online.target
+
+[Service]
+EnvironmentFile=/etc/wavebreak/identity.env
+EnvironmentFile=-/etc/wavebreak/device.env
+Environment=PYTHONPATH=/opt/ota-agent PYTHONUNBUFFERED=1
+ExecStart=/bin/sh -c 'if [ "$OTA_MODE" = local ]; then exec python3 -m ota_agent serve; else exec python3 -m ota_agent ddi; fi'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

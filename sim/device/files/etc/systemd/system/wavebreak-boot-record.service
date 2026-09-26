@@ -1,0 +1,14 @@
+[Unit]
+Description=Wavebreak boot record (boot.log; clean-shutdown marker on stop)
+Requires=wavebreak-identity.service
+After=wavebreak-identity.service
+Before=inference-app.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/wavebreak/boot-record.sh start
+ExecStop=/usr/local/lib/wavebreak/boot-record.sh stop
+
+[Install]
+WantedBy=multi-user.target

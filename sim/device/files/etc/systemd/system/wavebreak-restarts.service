@@ -1,0 +1,6 @@
+[Unit]
+Description=Write inference-app restart count to the textfile collector
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/wavebreak/restarts-metric.sh

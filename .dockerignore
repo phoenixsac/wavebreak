@@ -1,0 +1,10 @@
+.git
+.venv
+build
+!build/bundles
+logs
+run
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+docs
