@@ -199,8 +199,8 @@ make grafana-sa
 
 # The images above were built from this source. Record their inputs so later
 # aws-sync runs only rebuild when device or lab inputs change.
-device_hash=$(tar -cf - sim/device sim/ota-agent sim/inference-app sim/bundles/v1.0 | sha256sum | cut -d' ' -f1)
-lab_hash=$(tar -cf - lab/controller wavebreak_clients | sha256sum | cut -d' ' -f1)
+device_hash=$(python3 scripts/image-input-hash.py device)
+lab_hash=$(python3 scripts/image-input-hash.py lab)
 mkdir -p run
 printf '%s %s\n' "$device_hash" "$lab_hash" > run/aws-sync-images.sha256
 chmod 0600 run/aws-sync-images.sha256

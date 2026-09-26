@@ -148,8 +148,8 @@ cd "$repo"
 .venv/bin/pip install --quiet PyYAML
 
 mkdir -p run
-device_hash=$(tar -cf - sim/device sim/ota-agent sim/inference-app sim/bundles/v1.0 | sha256sum | cut -d' ' -f1)
-lab_hash=$(tar -cf - lab/controller wavebreak_clients | sha256sum | cut -d' ' -f1)
+device_hash=$(python3 scripts/image-input-hash.py device)
+lab_hash=$(python3 scripts/image-input-hash.py lab)
 marker=run/aws-sync-images.sha256
 old_device= old_lab=
 if [[ -f $marker ]]; then read -r old_device old_lab < "$marker" || true; fi
