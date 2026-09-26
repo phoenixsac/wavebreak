@@ -23,7 +23,7 @@ log 'installing Docker Engine, Compose, Node.js 22, and project tools'
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg git make jq socat ripgrep \
-  python3 python3-yaml
+  python3 python3-yaml python3-venv python3-pip
 
 if ! dpkg-query -W -f='${db:Status-Status}' docker-ce 2>/dev/null | grep -qx installed; then
   conflicting_packages=()
@@ -194,6 +194,32 @@ make bundles publish
 make fleet PROFILE=full RUNTIME=container
 make demo-reset PROFILE=full
 make grafana-sa
+
+log 'installing agent dependencies (agent/requirements.txt) into .venv'
+[[ -x .venv/bin/python ]] || python3 -m venv .venv
+.venv/bin/pip install --quiet --upgrade pip
+.venv/bin/pip install --quiet -r agent/requirements.txt
+
+# TrueForge needs a model key in agent/spike/.env (GEMINI_API_KEY, PROVIDER, MODEL); never committed.
+[[ -f agent/spike/.env ]] || log 'WARNING: agent/spike/.env missing; create it with GEMINI_API_KEY before using the agent'
+
+wait_port() { # host port seconds
+  local i
+  for ((i = 0; i < $3; i++)); do
+    (exec 3<>"/dev/tcp/$1/$2") 2>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
+log 'starting TrueForge (:8790) and the fleet MCP server (:8792)'
+# start_trueforge.sh sets OUTBOUND_URL_ALLOWED_HOSTS and MCP_REQUEST_TIMEOUT_MS=900000 (defaults);
+# socat and ripgrep (installed above) back TrueForge's local bubblewrap sandbox.
+MCP_REQUEST_TIMEOUT_MS=900000 ./agent/spike/start_trueforge.sh || log 'TrueForge already running or failed to start'
+./agent/start_fleet_mcp.sh || log 'fleet MCP already running or failed to start'
+wait_port 127.0.0.1 8790 120 || die 'TrueForge did not open :8790 (see agent/spike/trueforge.log)'
+wait_port 127.0.0.1 8792 60 || die 'fleet MCP did not open :8792 (see run/fleet-mcp.log)'
+python3 agent/register.py || log 'agent registration failed; run: python3 agent/register.py'
 
 log 'demo status'
 make demo-status

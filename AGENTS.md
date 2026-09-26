@@ -23,8 +23,9 @@ An update installs fine, then fails at runtime (memory leak → OOM kill loop on
 ## 4. Plan
 
 - **Part A (overnight, now)**: complete production-like environment. Tracker: `docs/IMPLEMENTATION.md`. Instructions: `docs/prompts/overnight.md`.
-- **Part B (build day)**: the rollout-manager agent: inventory → rehearse in lab → canary waves 2 → 5 → all → verify → promote, halt, or roll back with human approval. Not built yet.
+- **Part B (build day)**: the rollout-manager agent: inventory → rehearse in lab → canary waves → verify → promote, halt, or roll back with human approval. Built in `agent/` (fleet MCP server, TrueForge agent, driver). Status: `agent/STATUS.md`.
 - Part B agent design: `docs/agent-design.md`.
+- **Branching**: one branch, `master`, in `~/wavebreak`. No worktrees, no agent branch; environment and agent work are committed to master with small commits. Any tool (Claude Code, Codex) may edit any folder; keep environment changes minimal and note them in `docs/IMPLEMENTATION.md`.
 
 ## 5. Environment Design (summary; details in docs/architecture.md)
 
@@ -59,7 +60,8 @@ wavebreak_clients/        # thin hawkBit / observability / lab clients for the a
 infra/aws/                # launch.sh, install.sh (untested until build day)
 scripts/                  # build/publish bundles, seed, grafana-sa, overnight.sh
   host/setup-fc-net.sh    # once, with sudo: Firecracker bridges, NAT, taps
-agent/                    # Part B (empty)
+agent/                    # Part B: fleet_mcp/ (MCP server + tests), driver.py, register.py, instructions.md,
+                          #   requirements.txt, start_fleet_mcp.sh, spike/ (TrueForge start script, spikes), STATUS.md
 logs/, build/, run/       # git-ignored
 ```
 
@@ -73,6 +75,13 @@ make fleet seed RUNTIME=container     # devices, then assign v1.0
 make lab                              # rehearsal lab controller
 make view                             # docs viewer
 make down
+
+# agent (Part B)
+python3 -m venv .venv && .venv/bin/pip install -r agent/requirements.txt
+agent/spike/start_trueforge.sh        # TrueForge :8790 (needs agent/spike/.env with GEMINI_API_KEY)
+agent/start_fleet_mcp.sh              # fleet MCP :8792 (refuses a second copy)
+.venv/bin/python agent/register.py    # MCP servers + agent in TrueForge
+make demo-reset; make demo-status
 ```
 
 ## 8. Local Environment (verified 2026-09-25, run 1)

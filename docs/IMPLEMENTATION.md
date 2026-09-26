@@ -181,3 +181,4 @@ STATUS: COMPLETE
 | 2026-09-26 | Codex follow-up | Added idempotent Grafana Viewer token rotation and restarted mcp-grafana with the stored token (T10.4, T13.2) |
 | 2026-09-26 | Codex follow-up | Added `make demo-status`; verified the live v1.1 fleet, rollout/lab state, and service URLs (T13.3) |
 | 2026-09-26 | Codex follow-up | Added static-reviewed Ubuntu 24.04 full-container installer and AWS launch checklist; installer intentionally not run (T12.3, T13.4–T13.5) |
+| 2026-09-26 | Agent housekeeping | `infra/aws/install.sh` now installs `agent/requirements.txt` into `.venv`, starts TrueForge (:8790) and the fleet MCP server (:8792), registers the agent (environment change; untested until AWS run) |

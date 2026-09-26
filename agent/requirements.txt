@@ -1,0 +1,5 @@
+# Runtime dependencies of the fleet MCP server (agent/fleet_mcp), driver.py and register.py.
+# The server uses the 1.x FastMCP API (mcp.server.fastmcp); mcp 2.x removed it.
+# mcp pulls in httpx, uvicorn, pydantic-settings, starlette; pydantic is imported directly.
+mcp>=1.2,<2
+pydantic>=2.5,<3
