@@ -14,6 +14,8 @@ AUTH="${HAWKBIT_USERNAME:-admin}:${HAWKBIT_PASSWORD:-admin}"
 PROM=${PROMETHEUS_URL:-http://localhost:9090}
 LAB_URL=${LAB_CONTROLLER_URL:-http://localhost:${LAB_CONTROLLER_PORT:-8090}}
 LAB_TOKEN=${LAB_API_TOKEN:-change-me-lab-token}
+PUBLIC_HOST=${PUBLIC_HOST:-localhost}
+PUBLIC_BASE="http://$PUBLIC_HOST"
 api() { curl --max-time 5 -fsS -u "$AUTH" "$@"; }
 uri() { jq -rn --arg v "$1" '$v|@uri'; }
 prom_value() {
@@ -76,11 +78,15 @@ else
 fi
 
 printf '\nService URLs\n'
-printf '  hawkBit API:       %s\n' "${HAWKBIT_URL:-http://localhost:8080}"
-printf '  hawkBit UI:        http://localhost:%s\n' "${HAWKBIT_UI_PORT:-8081}"
-printf '  Grafana:           %s\n' "${GRAFANA_URL:-http://localhost:3000}"
-printf '  Prometheus:        %s\n' "$PROM"
-printf '  Loki:              %s\n' "${LOKI_URL:-http://localhost:3100}"
-printf '  mcp-grafana:       %s\n' "${MCP_GRAFANA_URL:-http://localhost:8000/mcp}"
-printf '  hawkBit MCP:       %s\n' "${HAWKBIT_MCP_URL:-http://localhost:8082/mcp}"
-printf '  lab controller:    %s\n' "$LAB_URL"
+printf '  hawkBit API:       %s:%s\n' "$PUBLIC_BASE" "${HAWKBIT_PORT:-8080}"
+printf '  hawkBit UI:        %s:%s\n' "$PUBLIC_BASE" "${HAWKBIT_UI_PORT:-8081}"
+printf '  Grafana:           %s:%s\n' "$PUBLIC_BASE" "${GRAFANA_PORT:-3000}"
+printf '  Prometheus (private): %s:%s\n' "$PUBLIC_BASE" "${PROMETHEUS_PORT:-9090}"
+printf '  Loki (private):      %s:%s\n' "$PUBLIC_BASE" "${LOKI_PORT:-3100}"
+printf '  mcp-grafana:       %s:%s/mcp\n' "$PUBLIC_BASE" "${MCP_GRAFANA_PORT:-8000}"
+if docker ps --filter label=com.docker.compose.service=hawkbit-mcp --format '{{.Names}}' | grep -q .; then
+  printf '  hawkBit MCP:       %s:%s/mcp\n' "$PUBLIC_BASE" "${HAWKBIT_MCP_PORT:-8082}"
+else
+  printf '  hawkBit MCP:       disabled (jar not installed)\n'
+fi
+printf '  lab controller:    %s:%s\n' "$PUBLIC_BASE" "${LAB_CONTROLLER_PORT:-8090}"

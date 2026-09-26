@@ -2,7 +2,7 @@
 PROFILE ?= lite
 RUNTIME ?= container
 HAWKBIT_UI ?= 0
-export PROFILE RUNTIME
+export PROFILE RUNTIME PY
 
 ENV_FILE := $(if $(wildcard .env),.env,.env.example)
 LAB_CONTROLLER_PORT ?= $(shell sed -n 's/^LAB_CONTROLLER_PORT=//p' $(ENV_FILE) | head -1)

@@ -5,7 +5,7 @@
 - Instructions: [docs/prompts/overnight.md](prompts/overnight.md)
 - Design source of truth: [docs/architecture.md](architecture.md)
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 ## How to use this file (loop runs)
 
@@ -127,7 +127,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
-| T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
+| T12.3 | AWS `install.sh` | orch | T7.4 | done | static | Added `infra/aws/install.sh` for Ubuntu 24.04 amd64, full container profile, persistent MySQL/artifact volumes, bundles, full fleet reset, Grafana Viewer token, and URLs. Shellcheck and `bash -n` pass; intentionally not run. |
 | T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
 | T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | done | smoke | Runbook commands, Compose profiles, tracker statuses, and live service state checked; lab API, hawkBit API/UI, and five-panel Grafana dashboard respond. No field or lab device containers left running. |
 
@@ -135,11 +135,11 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Repeated twice against live services in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Hard deadline 175s. |
+| T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Lite repeated live in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Now profile-aware for full; full 20-device case is not live-tested. Hard deadline 175s. |
 | T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | done | smoke | `make grafana-sa` creates/reuses a Viewer account, rotates and stores its token, and recreates mcp-grafana with the token. |
 | T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | done | smoke | Live output grouped versions by hw_rev, showed four healthy v1.1 devices, no active rollouts/lab devices, and local service URLs. |
-| T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | blocked | static | Could not review or reconcile H2 persistence, UI, lab, dashboard, or demo reset: `infra/aws/install.sh` is absent from the working tree and tracked HEAD contains only `infra/aws/.gitkeep`. Do not use the AWS runbook until an installer is added and reviewed. Did not run it. |
-| T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | done | static | Added exact reset/status/token commands, demo state guarantees and cleanup, service URLs, and the missing AWS bootstrap limitation. |
+| T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | done | static | Added and reviewed the missing installer against full-profile MySQL/artifact persistence, default hawkBit UI, lab build, provisioned dashboard, demo reset, Grafana token, and printed URLs. Did not run it. |
+| T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | done | static | Added full/lite demo commands and AWS launch checklist with instance type, inbound ports restricted to operator IP/32, bootstrap command, credential handling, and unrun status. |
 
 ## Needs human
 
@@ -153,7 +153,7 @@ STATUS: IN PROGRESS
 | ID | Reason | What the build day needs to do |
 |----|--------|-------------------------------|
 | Firecracker runtime (T8.1–T8.5) | Outside container-only MVP scope | Resume only if the build requires Firecracker |
-| AWS launch (T12.2–T12.3) | Outside MVP scope | Deploy container fallback manually only if needed |
+| AWS launch (T12.2) | EC2 launch and security-group provisioning remain manual | Create the instance and security group using the runbook checklist, then run the reviewed installer |
 | Full-profile live fleet smoke, Grafana service-account automation, and agent-side lab wrapper | Outside local MVP scope; full fleet exceeds the local memory cap and the agent runs on another branch | Use the full profile on a sufficiently provisioned host; implement agent-side clients with the agent integration |
 
 ## Run log
@@ -180,5 +180,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex follow-up | Added repeatable lite demo reset; two live runs completed in 22s and 42s (T13.1) |
 | 2026-09-26 | Codex follow-up | Added idempotent Grafana Viewer token rotation and restarted mcp-grafana with the stored token (T10.4, T13.2) |
 | 2026-09-26 | Codex follow-up | Added `make demo-status`; verified the live v1.1 fleet, rollout/lab state, and service URLs (T13.3) |
-| 2026-09-26 | Codex follow-up | AWS installer review blocked: `infra/aws/install.sh` is absent; confirmed tracked `infra/aws` has only `.gitkeep`; did not run it (T13.4) |
-| 2026-09-26 | Codex follow-up | Updated architecture runbook with demo reset, status, Grafana token setup, cleanup, URLs, and AWS readiness limitation (T13.5) |
+| 2026-09-26 | Codex follow-up | Added static-reviewed Ubuntu 24.04 full-container installer and AWS launch checklist; installer intentionally not run (T12.3, T13.4–T13.5) |

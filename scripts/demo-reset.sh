@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Return the lite demo environment to four healthy v1.1 field devices and an empty lab.
+# Return the selected container profile to healthy v1.1 devices and an empty lab.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 [[ -f .env ]] || { cp .env.example .env; echo "Created .env from .env.example"; }
+REQUESTED_PROFILE=${PROFILE:-}
 set -a
 # shellcheck disable=SC1091
 . ./.env
 set +a
 
+PROFILE=${REQUESTED_PROFILE:-${PROFILE:-lite}}
+[[ $PROFILE == lite || $PROFILE == full ]] || {
+  echo "demo-reset: unknown PROFILE=$PROFILE (choose lite or full)" >&2
+  exit 1
+}
 START=$SECONDS
 TIMEOUT=${DEMO_RESET_TIMEOUT:-175}
 HB=${HAWKBIT_URL:-http://localhost:8080}/rest/v1
@@ -24,10 +30,24 @@ api() { curl --max-time 8 -fsS -u "$AUTH" "$@"; }
 lab_api() { curl --max-time 8 -fsS -H "Authorization: Bearer $LAB_TOKEN" "$@"; }
 uri() { jq -rn --arg v "$1" '$v|@uri'; }
 
-echo "demo-reset: ensuring lite backend and fleet"
-make up PROFILE=lite >/dev/null
-make fleet PROFILE=lite RUNTIME=container >/dev/null
-make lab PROFILE=lite >/dev/null
+read -r DEVICE_COUNT REV_B_SHARE < <("${PYTHON:-${PY:-python3}}" - "$PROFILE" <<'PY'
+import sys
+import yaml
+
+fleet = yaml.safe_load(open("sim/fleet/fleet.yaml", encoding="utf-8"))
+profile = sys.argv[1]
+if profile not in fleet["profiles"]:
+    raise SystemExit(f"unknown fleet profile: {profile}")
+print(int(fleet["profiles"][profile]["devices"]), float(fleet["defaults"]["hw_rev_mix"]["B"]))
+PY
+)
+EXPECTED_REV_B=$(awk -v n="$DEVICE_COUNT" -v share="$REV_B_SHARE" 'BEGIN {print int(n * share + 0.999999)}')
+EXPECTED_REV_A=$((DEVICE_COUNT - EXPECTED_REV_B))
+
+echo "demo-reset: ensuring $PROFILE backend and fleet ($DEVICE_COUNT devices)"
+make up PROFILE="$PROFILE" RUNTIME=container >/dev/null
+make fleet PROFILE="$PROFILE" RUNTIME=container >/dev/null
+make lab PROFILE="$PROFILE" >/dev/null
 check_time
 
 echo "demo-reset: clearing lab devices"
@@ -62,7 +82,8 @@ ds=$(api "$HB/distributionsets?q=$(uri 'name==wavebreak-app;version==v1.1')&limi
   jq -er '[.content[] | select(.name == "wavebreak-app" and .version == "v1.1")][0].id') \
   || fail "hawkBit distribution set wavebreak-app v1.1 is missing; run make publish"
 target_json=$(api "$HB/targets?limit=500&q=$(uri 'controllerId==edge-*')")
-[[ $(jq '.content | length' <<<"$target_json") == 4 ]] || fail "expected four lite hawkBit targets"
+[[ $(jq '.content | length' <<<"$target_json") == "$DEVICE_COUNT" ]] \
+  || fail "expected $DEVICE_COUNT $PROFILE hawkBit targets"
 targets=$(jq -r '.content[].controllerId' <<<"$target_json")
 body=$(jq -cn --argjson ts "$(jq '[.content[].controllerId]' <<<"$target_json")" \
   '$ts | map({id: ., type: "forced"})')
@@ -108,9 +129,10 @@ done
 revision_counts=$(curl --max-time 5 -fsSG --data-urlencode \
   'query=count by (hw_rev) (wavebreak_app_fps{device_id=~"edge-.*",fw_version="v1.1"})' \
   "$PROM/api/v1/query" | jq -c '[.data.result[] | {revision: .metric.hw_rev, count: (.value[1] | tonumber)}]')
-jq -e '(. | length) == 2 and any(.[]; .revision == "A" and .count == 2) and
-  any(.[]; .revision == "B" and .count == 2)' <<<"$revision_counts" >/dev/null \
-  || fail "expected two v1.1 devices on each hardware revision; got $revision_counts"
+jq -e --argjson a "$EXPECTED_REV_A" --argjson b "$EXPECTED_REV_B" \
+  '(. | length) == 2 and any(.[]; .revision == "A" and .count == $a) and
+  any(.[]; .revision == "B" and .count == $b)' <<<"$revision_counts" >/dev/null \
+  || fail "expected $EXPECTED_REV_A rev-A and $EXPECTED_REV_B rev-B v1.1 devices; got $revision_counts"
 
 elapsed=$((SECONDS - START))
-echo "demo-reset: ready; four lite devices healthy on v1.1, lab empty (${elapsed}s)"
+echo "demo-reset: ready; $DEVICE_COUNT $PROFILE devices healthy on v1.1 ($EXPECTED_REV_A rev A, $EXPECTED_REV_B rev B), lab empty (${elapsed}s)"

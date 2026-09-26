@@ -516,10 +516,10 @@ Every series carries `device_id`, `hw_rev`, `region`, `fw_version` (added by Flu
 | | Local (WSL, dev) | AWS (build day) |
 |--|------------------|-----------------|
 | Profile | lite (4 devices, H2) | full (20 devices, hawkBit DB) |
-| Runtime | container; Firecracker for one-VM smoke | firecracker (fallback container if no `/dev/kvm`) |
-| Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via `--cpu-options NestedVirtualization=enabled` (AWS CLI >= 2.36), Ubuntu 24.04, 60 GB gp3 |
-| Access | localhost | SG restricted to caller IP: 22, 3000, 8080, MCP, 8090 |
-| Bootstrap | Makefile targets | Not ready: `infra/aws/launch.sh` and `infra/aws/install.sh` are absent from the repository |
+| Runtime | container; Firecracker for one-VM smoke | container (full profile, 20 devices); Firecracker remains parked |
+| Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, Ubuntu 24.04 amd64, 60 GB gp3 |
+| Access | localhost | SG inbound limited to operator's public IP `/32`: 22, 3000, 8000, 8080, 8081, 8090 |
+| Bootstrap | Makefile targets | SSH to instance and run `infra/aws/install.sh`; installer is static-reviewed, not run |
 
 Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `grafana-sa`, `demo-reset`, `demo-status`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
 
@@ -558,8 +558,9 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
 | D28 | Grafana's `Wavebreak Fleet` dashboard is provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` and reads Prometheus metrics plus Loki runtime logs | One checked-in dashboard exposes version mix, app memory, restarts, FPS, and OOM/killed-process evidence | 2026-09-26 |
 | D29 | hawkBit UI is a separate optional 1.1.0 service, with a 384 MiB JVM heap cap, enabled by default in full and only by `HAWKBIT_UI=1` in lite | Keep the browser UI available for full deployments without adding its Java process to the memory-constrained lite backend by default | 2026-09-26 |
-| D30 | `make demo-reset` stops active hawkBit rollouts, cancels active target actions, then explicitly assigns v1.1 to four lite devices and waits for successful install reports plus healthy app telemetry; it also deletes all lab devices | Repeated agent demos start from a known 2-rev-A / 2-rev-B state; verified live in under 45 seconds | 2026-09-26 |
+| D30 | `make demo-reset` stops active hawkBit rollouts, cancels active target actions, then explicitly assigns v1.1 to devices in the requested profile and waits for successful install reports plus healthy app telemetry; it also deletes all lab devices | Local repeats default to the 4-device 2/2 lite state; AWS can reset the 20-device full state with its configured 12/8 revision mix | 2026-09-26 |
 | D31 | `make grafana-sa` rotates a Grafana Viewer token into local `.env` and recreates mcp-grafana with that token | Keep MCP access read-only and make token replacement reproducible | 2026-09-26 |
+| D32 | AWS bootstrap uses `infra/aws/install.sh`, Docker's Ubuntu apt repository, and NodeSource Node 22.x; it creates random credentials when `.env` still has example defaults and keeps the file mode 0600 | One repeatable container setup on Ubuntu 24.04; TrueForge requires Node 22.14 or newer | 2026-09-26 |
 
 ---
 
@@ -626,8 +627,19 @@ Open `http://localhost:8081` and log in as `admin` with `HAWKBIT_PASSWORD` from 
 
 ### Full profile
 
-On a host with memory for the full backend and 20-device fleet, `make up PROFILE=full` starts MySQL and the hawkBit UI by default. Continue with `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, and `make seed PROFILE=full`. The UI uses the same `http://localhost:8081` URL and admin credentials described above.
+On a host with memory for the full backend and 20-device fleet, `make up PROFILE=full RUNTIME=container` starts MySQL and the hawkBit UI by default. Run `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, `make demo-reset PROFILE=full`, `make grafana-sa`, then `make demo-status`. The UI uses `http://localhost:8081` and `HAWKBIT_PASSWORD` from `.env`.
 
-### AWS readiness
+### AWS launch checklist
 
-The repository currently has no `infra/aws/launch.sh` or `infra/aws/install.sh`; only `infra/aws/.gitkeep` is tracked. The AWS install procedure has not been reviewed against persistent H2, the separate hawkBit UI, the lab controller, the provisioned Grafana dashboard, or demo reset. Do not treat the AWS bootstrap row above as executable until those scripts are added and reviewed. The installer review requested for this build is tracked as blocked.
+1. Launch an `m8i.2xlarge` instance with Ubuntu 24.04 amd64, a 60 GiB gp3 root volume, a key pair, and a public IPv4 address.
+2. Create an inbound security group with **source `<YOUR_PUBLIC_IP>/32` on every rule**: TCP 22 (SSH), 3000 (Grafana), 8000 (mcp-grafana), 8080 (hawkBit API/DDI), 8081 (hawkBit UI), and 8090 (lab controller). Only add 8082 if hawkBit MCP is separately installed. Do not open 9090 (Prometheus) or 3100 (Loki); Docker-published ports bypass host UFW rules, so keep these ports closed at the AWS security group.
+3. SSH in as `ubuntu`, then bootstrap the installer and let it clone the repo:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/phoenixsac/wavebreak/master/infra/aws/install.sh -o /tmp/wavebreak-install.sh
+   sudo env REPO_DIR=/opt/wavebreak bash /tmp/wavebreak-install.sh
+   ```
+
+   The installer installs Docker Engine/Compose, Node.js 22.x ([TrueForge requires 22.14+](https://github.com/truefoundry/trueforge/blob/main/package.json)), `socat`, and `ripgrep`; clones or fast-forward updates the selected repo ref; starts the full container profile; publishes bundles; launches the full fleet; resets it to healthy v1.1; creates the Grafana Viewer token; and prints URLs. It preserves non-example secrets in `.env`, generates replacements for example credentials, and stores `.env` as root-owned mode 0600. Read credentials over SSH with `sudo` when needed. Docker packages follow [Docker's Ubuntu apt instructions](https://docs.docker.com/engine/install/ubuntu/); Node uses [NodeSource 22.x](https://github.com/nodesource/distributions/blob/master/scripts/deb/setup_22.x).
+
+This installer is idempotent at the package, checkout, `.env`, Compose, publication, fleet, reset, and Grafana-token steps. The full profile uses the named `hawkbit-db` MySQL volume and `hawkbit-artifacts` volume; it does not rely on the lite profile's file-backed H2 database. It does not create the EC2 instance or security group. It has only received static checks here; it has not been run on Ubuntu/AWS. The full-profile reset path is added for this installer but has not been live-smoke-tested on 20 devices.
