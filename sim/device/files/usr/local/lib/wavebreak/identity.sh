@@ -9,15 +9,17 @@
 set -eu
 ETC=/etc/wavebreak
 mkdir -p "$ETC" /run/wavebreak
-tmp=$(mktemp)
+tmp=$(mktemp /run/wavebreak/identity.XXXXXX)
+env_tmp="${tmp}.env"
+trap 'rm -f "$tmp" "$env_tmp"' EXIT
 
 KEYS="DEVICE_ID HW_REV REGION RUNTIME OTA_MODE TELEMETRY HAWKBIT_DDI_URL HAWKBIT_TENANT DDI_AUTH_MODE \
 HAWKBIT_GATEWAY_TOKEN HAWKBIT_TARGET_TOKEN LAB_DEVICE_TOKEN LOCAL_API_PORT HEALTH_WINDOW_S \
-PROM_HOST PROM_PORT LOKI_HOST LOKI_PORT APP_MEMORY_MAX APP_ARGS"
+PROM_HOST PROM_PORT LOKI_HOST LOKI_PORT APP_MEMORY_MAX APP_ARGS FRAME_SCALE"
 
 # 1. container env of PID 1
 if [ -r /proc/1/environ ]; then
-  tr '\0' '\n' < /proc/1/environ > "$tmp.env" || true
+  tr '\0' '\n' < /proc/1/environ > "$env_tmp" || true
 fi
 # 2. kernel cmdline (Firecracker): wavebreak.device_id=edge-001 → DEVICE_ID=edge-001
 # shellcheck disable=SC2013 # cmdline is split into words on purpose
@@ -25,18 +27,17 @@ for arg in $(cat /proc/cmdline); do
   case $arg in
     wavebreak.*=*)
       k=${arg#wavebreak.}; v=${k#*=}; k=$(echo "${k%%=*}" | tr '[:lower:]' '[:upper:]')
-      echo "$k=$v" >> "$tmp.env" ;;
+      echo "$k=$v" >> "$env_tmp" ;;
   esac
 done
 
-get() { grep "^$1=" "$tmp.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true; }
+get() { grep "^$1=" "$env_tmp" 2>/dev/null | tail -n 1 | cut -d= -f2- || true; }
 
 : > "$tmp"
 for k in $KEYS; do
   v=$(get "$k")
   [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$tmp"
 done
-rm -f "$tmp.env"
 
 # Defaults
 val() { grep "^$1=" "$tmp" | cut -d= -f2- || true; }

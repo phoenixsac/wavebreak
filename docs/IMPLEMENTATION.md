@@ -71,7 +71,7 @@ STATUS: IN PROGRESS
 | T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | static | Present in commit cd5fe0d; image has not been built |
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | static | Units and helper scripts present in cd5fe0d; runtime behavior unverified |
 | T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
-| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | in-progress | — | User requested starting here. Flags: `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock` |
+| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Image built. Container booted, identity + inference-app + node_exporter active, labels v1.0 correct. Fixed identity temp-file handling; OTA local API was confirmed to require LAB_DEVICE_TOKEN; telemetry-off correctly skips Fluent Bit. |
 | T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | todo | — | |
 | T6.7 | Smoke: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | todo | — | Critical path e2e coverage may satisfy this |
 
@@ -152,3 +152,4 @@ STATUS: IN PROGRESS
 | 2026-09-25 22:30 | 1 (interactive, after go) | Re-checked N1 (host net up) and N2 (pushed); loop ready |
 | 2026-09-26 | MVP run | T2.3–T2.7 backend compose, configs, hawkbit-config.sh, fetch-hawkbit-mcp.sh |
 | 2026-09-26 | Codex handoff audit | Reconciled tracker with repository; Part A skipped; container MVP scope recorded; agent-design pointer added |
+| 2026-09-26 | Codex MVP | Built device image and booted one container; fixed identity startup temp-file bug (T6.5) |
