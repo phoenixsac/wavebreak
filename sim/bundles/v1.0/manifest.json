@@ -1,0 +1,6 @@
+{
+  "name": "wavebreak-app",
+  "version": "v1.0",
+  "entrypoint": "app/inference_app.py",
+  "description": "Baseline camera-AI inference loop."
+}

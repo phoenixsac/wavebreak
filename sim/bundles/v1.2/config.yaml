@@ -1,0 +1,10 @@
+# Wavebreak inference-app v1.2 bundle config (flat YAML subset, no pyyaml)
+frame_bytes_1080p: 16384
+frame_bytes_4k: 40960
+frame_interval_s: 0.2
+cache_max_items: 8
+metrics_interval_s: 5
+config_reload_interval_s: 45
+detection_threshold: 0.6
+roi: full
+enhance_enabled: true

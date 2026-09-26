@@ -1,0 +1,6 @@
+{
+  "name": "wavebreak-app",
+  "version": "v1.3",
+  "entrypoint": "app/inference_app.py",
+  "description": "Renames detection_threshold to confidence_threshold (no device migration)."
+}

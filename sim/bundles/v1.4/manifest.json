@@ -1,0 +1,6 @@
+{
+  "name": "wavebreak-app",
+  "version": "v1.4",
+  "entrypoint": "app/inference_app.py",
+  "description": "Bounds the 4K enhancement buffer; fixes the v1.2 leak."
+}

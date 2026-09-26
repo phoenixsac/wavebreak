@@ -1,0 +1,6 @@
+{
+  "name": "wavebreak-app",
+  "version": "v1.1",
+  "entrypoint": "app/inference_app.py",
+  "description": "Adds per-frame latency metric."
+}

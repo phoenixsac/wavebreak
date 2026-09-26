@@ -160,3 +160,5 @@ RULES (always)
 - Never fabricate telemetry or logs; symptoms must come from real processes misbehaving.
 - No secrets in git. No employer code or data.
 - Prefer finishing more tasks at "static/unit" verification over sinking hours into one local smoke test that the memory limit won't allow.
+
+RATE LIMIT RULE: run at most 2 subagents in parallel; prefer haiku/sonnet subagents; keep the orchestrator's own work minimal.

@@ -1,0 +1,6 @@
+{
+  "name": "wavebreak-app",
+  "version": "v1.2",
+  "entrypoint": "app/inference_app.py",
+  "description": "Adds a 4K enhancement buffer."
+}
