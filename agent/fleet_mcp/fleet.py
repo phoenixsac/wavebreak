@@ -12,8 +12,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from .assess import assess_hw_rev, assess_rehearsal, assess_rehearsal_device, assess_wave
-from .backends import FieldBackend, LabBackend, MetricsBackend
+from .assess import (
+    assess_hw_rev,
+    assess_rehearsal,
+    assess_rehearsal_device,
+    assess_wave,
+    inconclusive_hw_rev,
+)
+from .backends import FieldBackend, LabBackend, MetricsBackend, MetricsUnavailable
 from .bundle_diff import bundle_diff
 from .config import Settings
 from .errors import PreconditionError
@@ -68,6 +74,16 @@ def _missing_stats(device: Device) -> DeviceStats:
     return DeviceStats(device.id, device.hw_rev, False, 0, 0.0, None, 0, 0, None)
 
 
+def _flat_reasons(per_hw: dict[str, dict]) -> list[str]:
+    """Reasons of every inconclusive per-key result, prefixed with the key."""
+    return [
+        f"hw_rev {hw}: {reason}"
+        for hw, res in per_hw.items()
+        if res.get("verdict") == "inconclusive"
+        for reason in res.get("reasons", [])
+    ]
+
+
 class Fleet:
     """Business logic of the 11 fleet tools."""
 
@@ -98,10 +114,14 @@ class Fleet:
         return self._clock().astimezone(UTC)
 
     def _call(self, plan_id: str | None, what: str, fn: Callable, *args, code: str = "BACKEND_ERROR"):
-        """Run a backend call; wrap failures as PreconditionError(code) and log an `error` event."""
+        """Run a backend call; wrap failures as PreconditionError(code) and log an `error` event.
+
+        PreconditionError and MetricsUnavailable propagate unchanged: callers record the latter in
+        their evidence as inconclusive.
+        """
         try:
             return fn(*args)
-        except PreconditionError:
+        except (PreconditionError, MetricsUnavailable):
             raise
         except Exception as exc:
             message = f"{what}: {exc}"
@@ -459,6 +479,7 @@ class Fleet:
         finally:
             self._destroy_lab(created, cleanup_errors)
         verdict = assess_rehearsal(per_hw)
+        reasons = _flat_reasons(per_hw) if verdict == "inconclusive" else []
         payload = {
             "per_hw_rev": per_hw,
             "window_minutes": mins,
@@ -466,10 +487,17 @@ class Fleet:
             "version": plan.version,
             "from_version": plan.from_version,
         }
+        if reasons:
+            payload["reasons"] = reasons
         ev = self.ledger.new_evidence(plan_id, "rehearsal", verdict, payload)
-        phase = self.ledger.set_phase(
-            plan_id, "REHEARSED" if verdict == "pass" else "BLOCKED", allowed_from=("PLANNED", "REHEARSED")
-        ).phase
+        if verdict == "inconclusive":
+            phase = plan.phase  # evidence supersedes an older pass; the phase stays where it is
+        else:
+            phase = self.ledger.set_phase(
+                plan_id,
+                "REHEARSED" if verdict == "pass" else "BLOCKED",
+                allowed_from=("PLANNED", "REHEARSED"),
+            ).phase
         out = {
             "evidence_id": ev.evidence_id,
             "verdict": verdict,
@@ -477,18 +505,24 @@ class Fleet:
             "per_hw_rev": _round(per_hw),
             "phase": phase,
             "caveat": REHEARSAL_CAVEAT,
-            "next": (
-                "start_wave 1 with this evidence_id (needs approval)"
-                if verdict == "pass"
-                else "rehearsal failed: plan is BLOCKED; report and do not roll out"
-            ),
+            "next": self._rehearse_next(verdict, reasons),
         }
+        if reasons:
+            out["reasons"] = reasons
         not_done = sorted({d["hw_rev"] for d in plan.devices.values()} - set(revs))
         if not_done:
             out["not_rehearsed"] = not_done
         if cleanup_errors:
             out["cleanup_errors"] = cleanup_errors
         return out
+
+    @staticmethod
+    def _rehearse_next(verdict: str, reasons: list[str]) -> str:
+        if verdict == "pass":
+            return "start_wave 1 with this evidence_id (needs approval)"
+        if verdict == "inconclusive":
+            return f"rehearsal inconclusive ({'; '.join(reasons)}): run rehearse again; do not start a wave"
+        return "rehearsal failed: plan is BLOCKED; report and do not roll out"
 
     async def _run_rehearsal(
         self, plan: Plan, revs: list[str], mins: float, created: list[str], cleanup_errors: list[str]
@@ -500,7 +534,14 @@ class Fleet:
         size = max(1, self.settings.lab_parallel)
         out: dict = {}
         for i in range(0, len(revs), size):
-            out.update(await self._rehearse_batch(plan, revs[i : i + size], mins, created))
+            batch = revs[i : i + size]
+            try:
+                out.update(await self._rehearse_batch(plan, batch, mins, created))
+            except PreconditionError as exc:
+                if exc.code != "LAB_ERROR":
+                    raise
+                for hw in batch:
+                    out.setdefault(hw, {"verdict": "inconclusive", "reasons": [f"lab_error: {exc.message}"]})
             self._destroy_lab(created, cleanup_errors)
         return out
 
@@ -619,6 +660,7 @@ class Fleet:
         install_status = self._call(plan_id, "action_status", self.field.action_status, wave_ids)
         status_shown, status_dropped = _cap_dict(dict(install_status))
         per_hw = _round(wave_res["per_hw_rev"])
+        reasons = _flat_reasons(per_hw) if verdict == "inconclusive" else []
         payload = {
             "wave": wave,
             "window_minutes": mins,
@@ -628,6 +670,8 @@ class Fleet:
             "per_hw_rev": per_hw,
             "install_status": status_shown,
         }
+        if reasons:
+            payload["reasons"] = reasons
         ev = self.ledger.new_evidence(plan_id, "observation", verdict, payload, wave=wave)
         phase = self._observe_phase(plan_id, plan, wave, verdict)
         out = {
@@ -641,6 +685,8 @@ class Fleet:
             "phase": phase,
             "next": self._observe_next(verdict, wave, len(plan.waves), phase, plan.from_version),
         }
+        if reasons:
+            out["reasons"] = reasons
         if status_dropped:
             out["install_status_truncated"] = status_dropped
         return out
@@ -656,12 +702,31 @@ class Fleet:
         start: float,
         end: float,
     ) -> dict:
-        pid = plan.plan_id
         updated = [
             Device(d, hw, plan.devices[d].get("region", "unknown"), plan.version)
             for d in wave_ids
             if plan.devices[d]["hw_rev"] == hw
         ]
+        try:
+            return self._assess_hw_rev_metrics(
+                plan, hw, updated, inventory, started_ids, failures, start, end
+            )
+        except MetricsUnavailable as exc:
+            return inconclusive_hw_rev(hw, [f"metrics_unavailable: {exc}"], [d.id for d in updated])
+
+    def _assess_hw_rev_metrics(
+        self,
+        plan: Plan,
+        hw: str,
+        updated: list[Device],
+        inventory: list[Device],
+        started_ids: set[str],
+        failures: set[str],
+        start: float,
+        end: float,
+    ) -> dict:
+        """Metric queries and verdict for one hw_rev; MetricsUnavailable propagates."""
+        pid = plan.plan_id
         upd_raw = self._call(
             pid, "device_stats", self.metrics.device_stats, updated, plan.version, start, end
         )
@@ -818,15 +883,28 @@ class Fleet:
             Device(d, plan.devices[d]["hw_rev"], plan.devices[d].get("region", "unknown"), plan.from_version)
             for d in chosen
         ]
-        stats = self._call(
-            plan_id, "device_stats", self.metrics.device_stats, devices, plan.from_version, rollback_ts, now
-        )
+        unavailable = None
+        try:
+            stats = self._call(
+                plan_id,
+                "device_stats",
+                self.metrics.device_stats,
+                devices,
+                plan.from_version,
+                rollback_ts,
+                now,
+            )
+        except MetricsUnavailable as exc:
+            stats, unavailable = {}, f"metrics_unavailable: {exc}"
         per_device = {
             d.id: self._recovery_row(plan, d, installed.get(d.id), stats.get(d.id)) for d in devices
         }
-        verdict = "recovered" if all(r["recovered"] for r in per_device.values()) else "not_recovered"
+        verdict = self._recovery_verdict(per_device, unavailable)
+        reasons = self._recovery_reasons(per_device, unavailable) if verdict == "inconclusive" else []
         shown, dropped = _cap_dict(per_device)
         payload = {"per_device": shown, "targets": chosen[:LIST_CAP], "window_minutes": mins}
+        if reasons:
+            payload["reasons"] = reasons
         ev = self.ledger.new_evidence(plan_id, "verification", verdict, payload)
         phase = plan.phase
         if verdict == "recovered":
@@ -836,33 +914,61 @@ class Fleet:
             "verdict": verdict,
             "per_device": shown,
             "phase": phase,
-            "next": (
-                "rollout ended: write final report"
-                if verdict == "recovered"
-                else "not recovered: call verify_recovery again after a longer soak or investigate the devices"
-            ),
+            "next": self._verify_next(verdict, reasons),
         }
+        if reasons:
+            out["reasons"] = reasons
         if dropped:
             out["truncated"] = dropped
         return out
 
     @staticmethod
+    def _recovery_verdict(per_device: dict[str, dict], unavailable: str | None) -> str:
+        """recovered only if every device is positively recovered; a definite failure beats missing data."""
+        if any(not r["recovered"] and "note" not in r for r in per_device.values()):
+            return "not_recovered"
+        if unavailable or any(not r["recovered"] for r in per_device.values()):
+            return "inconclusive"
+        return "recovered"
+
+    @staticmethod
+    def _recovery_reasons(per_device: dict[str, dict], unavailable: str | None) -> list[str]:
+        reasons = [unavailable] if unavailable else []
+        reasons += [f"{did}: {r['note']}" for did, r in per_device.items() if r.get("note")]
+        return reasons or ["recovery could not be confirmed"]
+
+    @staticmethod
+    def _verify_next(verdict: str, reasons: list[str]) -> str:
+        if verdict == "recovered":
+            return "rollout ended: write final report"
+        if verdict == "inconclusive":
+            return (
+                f"recovery inconclusive ({'; '.join(reasons)}): plan stays ROLLED_BACK; "
+                "call verify_recovery again"
+            )
+        return "not recovered: call verify_recovery again after a longer soak or investigate the devices"
+
+    @staticmethod
     def _recovery_row(plan: Plan, device: Device, installed: str | None, st: DeviceStats | None) -> dict:
+        """One device's recovery facts. `recovered` is True only with positive evidence.
+
+        Not recovered and no `note`: provably failed (wrong version, restarts, OOM, zero fps). A device
+        on the right version that only lacks metrics gets a `note` (inconclusive, not failed).
+        """
         st = st or _missing_stats(device)
-        recovered = (
-            installed == plan.from_version
-            and st.installed
-            and st.restarts == 0
-            and st.oom_kills == 0
-            and (st.fps_median is None or st.fps_median > 0)
-        )
-        return {
+        on_version = installed == plan.from_version
+        broken = st.restarts > 0 or st.oom_kills > 0 or (st.fps_median is not None and st.fps_median <= 0)
+        recovered = on_version and st.installed and not broken
+        row = {
             "installed_version": installed,
             "recovered": bool(recovered),
             "restarts": st.restarts,
             "oom_kills": st.oom_kills,
             "fps": None if st.fps_median is None else round(st.fps_median, 2),
         }
+        if on_version and not st.installed and not broken:
+            row["note"] = "no metrics for the device (not installed, or Prometheus has no data)"
+        return row
 
     # decisions -------------------------------------------------------------
 

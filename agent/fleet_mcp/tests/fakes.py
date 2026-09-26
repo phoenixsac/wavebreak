@@ -114,10 +114,13 @@ class FakeMetrics:
     """MetricsBackend returning healthy stats unless overridden per (device_id, fw_version).
 
     `overrides[(id, version)]` holds DeviceStats field overrides. `push_call(...)` queues one-shot
-    overrides applied to the next `device_stats` call only (keyed by device id).
+    overrides applied to the next `device_stats` call only (keyed by device id). `unavailable` makes
+    every call raise `MetricsUnavailable`; `empty` makes every device report no data (not installed).
     """
 
     def __init__(self) -> None:
+        self.unavailable: Exception | None = None
+        self.empty = False
         self.overrides: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: list[dict] = []
         self._queued: list[dict[str, dict[str, Any]]] = []
@@ -136,6 +139,8 @@ class FakeMetrics:
         self.calls.append(
             {"ids": [d.id for d in devices], "fw_version": fw_version, "start": start, "end": end}
         )
+        if self.unavailable is not None:
+            raise self.unavailable
         once = self._queued.pop(0) if self._queued else {}
         out = {}
         for d in devices:
@@ -148,6 +153,10 @@ class FakeMetrics:
                 "oom_kills": 0,
                 "fps_median": 30.0,
             }
+            if self.empty:
+                fields.update(
+                    installed=False, samples=0, window_s=0.0, mem_slope_mb_per_min=None, fps_median=None
+                )
             fields.update(self.overrides.get((d.id, fw_version), {}))
             fields.update(once.get(d.id, {}))
             out[d.id] = DeviceStats(device_id=d.id, hw_rev=d.hw_rev, **fields)
@@ -158,6 +167,7 @@ class TrackingLab(MockLab):
     """MockLab that counts live devices and can inject failures.
 
     `fail_create_on`: 1-based create_device call number that raises. `fail_summary`: raise on summary.
+    `max_samples`: keep only the first N memory samples in every summary (a too-short soak).
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -167,6 +177,7 @@ class TrackingLab(MockLab):
         self.destroyed: list[str] = []
         self.fail_create_on: int | None = None
         self.fail_summary = False
+        self.max_samples: int | None = None
 
     @property
     def alive(self) -> int:
@@ -183,7 +194,10 @@ class TrackingLab(MockLab):
     def summary(self, device_id: str) -> dict:
         if self.fail_summary:
             raise RuntimeError("lab summary failed")
-        return super().summary(device_id)
+        out = super().summary(device_id)
+        if self.max_samples is not None:
+            out["memory_samples"] = out["memory_samples"][: self.max_samples]
+        return out
 
     def destroy(self, device_id: str) -> None:
         super().destroy(device_id)

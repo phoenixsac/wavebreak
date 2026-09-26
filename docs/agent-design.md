@@ -203,7 +203,7 @@ Decided 2026-09-26. Approval semantics (user decision): approve every `start_wav
 
 **Phases:** PLANNED, REHEARSED, BLOCKED, WAVE_RUNNING, WAVE_OBSERVED, COMPLETE, HALTED, ROLLED_BACK, VERIFIED (§9; PREFLIGHT is not stored). Terminal: BLOCKED, COMPLETE, VERIFIED. A new plan is refused (`ACTIVE_PLAN_EXISTS`) while another plan is in WAVE_RUNNING, WAVE_OBSERVED, HALTED or ROLLED_BACK; a PLANNED or REHEARSED plan (nothing in the field yet) is superseded: set to BLOCKED with a `superseded` event.
 
-**Evidence:** id `ev-<8 hex>`; ledger event of type rehearsal, observation or verification with payload `{verdict, ...}`. Verdict values: rehearsal `pass|fail`, observation `healthy|regression|inconclusive`, verification `recovered|not_recovered`. Fresh means age <= `FLEET_EVIDENCE_MAX_AGE_S`. An action must use the **latest** evidence of its kind (a newer observation of the same wave supersedes older ones).
+**Evidence:** id `ev-<8 hex>`; ledger event of type rehearsal, observation or verification with payload `{verdict, ...}`. Verdict values: rehearsal `pass|fail|inconclusive`, observation `healthy|regression|inconclusive`, verification `recovered|not_recovered|inconclusive`. **Fail closed (drift C3, fixed 2026-09-26):** whenever the data behind a verdict cannot be obtained, the verdict is `inconclusive` with `reasons`, never `pass`, `healthy` or `recovered`; `start_wave` accepts only rehearsal `pass` and observation `healthy`, so inconclusive evidence is refused with `EVIDENCE_VERDICT` and, being the latest of its kind, also supersedes an older passing one. Fresh means age <= `FLEET_EVIDENCE_MAX_AGE_S`. An action must use the **latest** evidence of its kind (a newer observation of the same wave supersedes older ones).
 
 | Tool | Preconditions (all enforced server-side; refusal raises a tool error with a stable code and writes an `error` event) |
 |---|---|
@@ -276,6 +276,19 @@ Per wave, per hw_rev: compare **updated** devices vs **control** (same hw_rev, n
 | FPS | updated cohort median < 80% of control (extension) |
 
 Verdicts: `healthy` (no signal), `regression` (any signal, with the affected cohort named), `inconclusive` (too few devices or too short a window → extend soak up to N times, then ask the user).
+
+**Fail-closed rules (2026-09-26, A24).** `healthy`, rehearsal `pass` and verification `recovered` require positive data; each of these makes the verdict `inconclusive` and puts the cause in `reasons` (and in the top-level `reasons` of the tool result):
+
+| Situation | Where | Verdict |
+|---|---|---|
+| Prometheus or Loki query raises (error, timeout, non-success status) | `PromBackend` raises `MetricsUnavailable(source, detail)`; `observe_wave` and `verify_recovery` catch it | `inconclusive`, reason `metrics_unavailable: <source> unavailable: <detail>`. The Loki OOM count no longer counts a failed query as zero OOM kills. An empty Loki vector (no OOM lines) is a normal zero |
+| Prometheus returns no series for an updated device | `assess_hw_rev` | `inconclusive` (device has no metrics yet: not installed, or Prometheus has no data) |
+| Neither same-hw_rev control devices nor a pre-update baseline have metrics | `assess_hw_rev` | `inconclusive`, reason `no control or baseline metrics`; oom and crash_loop signals still fire without a control, so a regression is still reported |
+| Rehearsal memory slope not evaluable (fewer than 2 lab samples) and nothing failed | `assess_rehearsal_device` | that hw_rev `inconclusive` |
+| Lab controller call fails or times out during rehearsal | `_run_rehearsal` | the affected hw_revs `inconclusive`, reason `lab_error: ...`; lab devices are still destroyed |
+| `verify_recovery`: metrics unavailable, or a device has no metrics though hawkBit reports it on `from_version` | `verify_recovery` | `inconclusive` (phase stays ROLLED_BACK); a definite failure (wrong version, restarts, OOM, fps 0) still gives `not_recovered` |
+
+Rehearsal overall: any hw_rev `fail` gives `fail` (plan BLOCKED); otherwise any `inconclusive` gives `inconclusive` (phase unchanged, run `rehearse` again); otherwise `pass`. An inconclusive hw_rev can not justify a hold (`plan_rollout` exclusion needs a `fail`). hawkBit failures are still `BACKEND_ERROR` tool errors (no evidence is written).
 
 Root-cause hint: shared attribute of affected devices (hw_rev, region, version) + `get_bundle_diff` summary.
 
@@ -547,6 +560,8 @@ SDK notes (programmatic driving; `agent/spike/drive.py` is a working example ove
 | A21 | The driver retries transient provider errors (429 quota, `Cannot connect to API`, 503) with backoff by sending "continue" to the same session; `--auto-approve` is test-only and logs every approval it grants | Free-tier Gemini limits and occasional connection drops ended turns mid-rollout |
 | A22 | Start scripts (`agent/start_fleet_mcp.sh`, `agent/spike/start_trueforge.sh`) refuse to start when the port is taken, create `run/`, and use `.venv/bin/python`; `infra/aws/install.sh` starts both and registers the agent | A second copy silently shares or corrupts state; one script must bring up the demo |
 | A23 | Use a paid Gemini key for the demo | Free tier is capped at 20 requests per model per day: about one scene |
+| A24 | **Fail closed** (2026-09-26): verdicts `healthy`, `pass` and `recovered` need positive data. A Prometheus or Loki failure, missing series, missing control or baseline, an unevaluable rehearsal slope or a lab failure yields `inconclusive` with a reason. `start_wave` only accepts `pass` / `healthy`, so inconclusive evidence can not start a wave | Drift C3: a Loki outage counted as zero OOM kills and could turn an OOM regression into `healthy`; evidence integrity must not depend on the monitoring stack being up |
+| A25 | **Rehearsal coverage** (2026-09-26): `start_wave` 1 requires the rehearsal evidence in use to pass every hw_rev of the whole plan (not only wave 1), later waves need a passing result for their hw_revs; refusal code `REHEARSAL_COVERAGE` | Drift C1: `rehearse(hw_revs=[A])` used to allow a wave containing rev B. Whole plan for wave 1 because `rehearse` is refused once wave 1 has started (a later uncovered hw_rev would be a dead end). Held cohorts are not in the plan |
 
 ## 24. Sources
 

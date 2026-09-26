@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.fleet_mcp.backends import PromBackend, _counter_increase
+from agent.fleet_mcp.backends import MetricsUnavailable, PromBackend, _counter_increase
 from agent.fleet_mcp.models import Device
 
 MB = 1024 * 1024
@@ -90,10 +90,26 @@ def test_restarts_use_increments_after_reset():
     assert out["d1"].restarts == 2
 
 
-def test_loki_error_tolerated():
-    out = PromBackend(FakeProm(leak_data()), FakeLoki(error=RuntimeError("down"))).device_stats(
-        [A], "v1.2", 1000, 1120
-    )
+def test_loki_error_is_metrics_unavailable():
+    backend = PromBackend(FakeProm(leak_data()), FakeLoki(error=RuntimeError("down")))
+    with pytest.raises(MetricsUnavailable) as exc:
+        backend.device_stats([A], "v1.2", 1000, 1120)
+    assert exc.value.source == "loki" and "down" in exc.value.detail
+    assert str(exc.value).startswith("loki unavailable: ")
+
+
+def test_prometheus_error_is_metrics_unavailable():
+    class BrokenProm(FakeProm):
+        def query_range(self, promql, start, end, step="15s"):
+            raise TimeoutError("timed out")
+
+    with pytest.raises(MetricsUnavailable) as exc:
+        PromBackend(BrokenProm({}), FakeLoki()).device_stats([A], "v1.2", 1000, 1120)
+    assert exc.value.source == "prometheus" and "timed out" in exc.value.detail
+
+
+def test_loki_empty_result_means_zero_oom():
+    out = PromBackend(FakeProm(leak_data()), FakeLoki(result=[])).device_stats([A], "v1.2", 1000, 1120)
     assert out["d1"].oom_kills == 0 and out["d1"].samples == 9
 
 

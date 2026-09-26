@@ -28,6 +28,18 @@ _WAVE_DEAD = frozenset({"deleted", "finished"})
 _OOM_LINE = "Failed with result 'oom-kill'"
 
 
+class MetricsUnavailable(Exception):
+    """Prometheus or Loki could not be queried; evidence built on it must be inconclusive."""
+
+    def __init__(self, source: str, detail: str) -> None:
+        super().__init__(source, detail)
+        self.source = source
+        self.detail = detail
+
+    def __str__(self) -> str:
+        return f"{self.source} unavailable: {self.detail}"
+
+
 class FieldBackend(Protocol):
     """Field-fleet operations (hawkBit)."""
 
@@ -42,7 +54,11 @@ class FieldBackend(Protocol):
 
 
 class MetricsBackend(Protocol):
-    """Per-device metrics over a window."""
+    """Per-device metrics over a window.
+
+    `device_stats` may raise `MetricsUnavailable` when the metrics source cannot be queried; callers
+    must treat that as missing evidence (inconclusive), never as healthy.
+    """
 
     def device_stats(
         self, devices: list[Device], fw_version: str, start: float, end: float
@@ -272,15 +288,22 @@ class PromBackend:
     def device_stats(
         self, devices: list[Device], fw_version: str, start: float, end: float
     ) -> dict[str, DeviceStats]:
-        """Stats for every requested device (three Prometheus queries, one Loki query)."""
+        """Stats for every requested device (three Prometheus queries, one Loki query).
+
+        Raises `MetricsUnavailable` if Prometheus or Loki fails; a device without series gets
+        `installed=False` stats.
+        """
         if not devices:
             return {}
         ids = [d.id for d in devices]
         sel = f"{{device_id=~{_id_regex(ids)},fw_version={_quote(fw_version)}}}"
 
         def matrix(metric: str) -> dict[str, list[list[tuple[float, float]]]]:
-            result = self.prometheus.query_range(f"{metric}{sel}", start, end, step=self.step)
-            return _by_device(result)
+            try:
+                result = self.prometheus.query_range(f"{metric}{sel}", start, end, step=self.step)
+                return _by_device(result)
+            except Exception as exc:
+                raise MetricsUnavailable("prometheus", f"{type(exc).__name__}: {exc}") from exc
 
         memory = matrix("wavebreak_app_cgroup_memory_bytes")
         restarts = matrix("wavebreak_app_restarts_total")
@@ -294,7 +317,7 @@ class PromBackend:
         }
 
     def _oom_kills(self, ids: list[str], start: float, end: float) -> dict[str, int]:
-        """OOM kill lines per device; any Loki failure counts as none."""
+        """OOM kill lines per device; a Loki failure raises MetricsUnavailable, an empty result means none."""
         window = max(1, int(end - start))
         logql = (
             f"sum by (device_id) (count_over_time({{device_id=~{_id_regex(ids)}}} "
@@ -307,8 +330,8 @@ class PromBackend:
                 for r in result
                 if "device_id" in r.get("metric", {})
             }
-        except Exception:  # noqa: BLE001 - Loki is best effort
-            return {}
+        except Exception as exc:
+            raise MetricsUnavailable("loki", f"{type(exc).__name__}: {exc}") from exc
 
 
 def _device_stats(

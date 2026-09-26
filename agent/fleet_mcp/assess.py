@@ -148,7 +148,12 @@ def assess_hw_rev(
         if not updated:
             reasons.append("no updated devices")
         elif len(installed) < len(updated):
-            reasons.append(f"{len(updated) - len(installed)} device(s) have not installed the version yet")
+            reasons.append(
+                f"{len(updated) - len(installed)} device(s) have no metrics yet "
+                "(not installed, or Prometheus has no data)"
+            )
+        if not control:
+            reasons.append("no control or baseline metrics: cannot compare updated devices")
         if any(s.samples < th.min_samples for s in updated):
             reasons.append(f"fewer than {th.min_samples} samples on some device")
         if installed and len(_valid_slopes(installed, th)) < len(installed):
@@ -172,6 +177,25 @@ def assess_hw_rev(
     }
 
 
+def inconclusive_hw_rev(
+    hw_rev: str, reasons: list[str], updated_ids: list[str], control_type: str = "unavailable"
+) -> dict:
+    """Per-hw_rev result (same shape as `assess_hw_rev`) when no verdict can be computed."""
+    return {
+        "hw_rev": hw_rev,
+        "verdict": "inconclusive",
+        "signals": [],
+        "reasons": list(reasons),
+        "control_type": control_type,
+        "updated_devices": sorted(updated_ids),
+        "control_devices": [],
+        "mem_slope_updated": None,
+        "mem_slope_control": None,
+        "restarts_updated": 0,
+        "oom_updated": 0,
+    }
+
+
 def assess_wave(per_hw_rev: list[dict]) -> dict:
     """Combine per-hw_rev assessments: regression > inconclusive > healthy."""
     verdicts = [r["verdict"] for r in per_hw_rev]
@@ -189,10 +213,11 @@ def assess_wave(per_hw_rev: list[dict]) -> dict:
 
 
 def assess_rehearsal_device(summary: dict, th: Thresholds) -> dict:
-    """Pass/fail for one lab device summary (`memory_samples` is [{t, bytes}], t in seconds).
+    """Pass/fail/inconclusive for one lab device summary (`memory_samples` is [{t, bytes}], t in seconds).
 
     Fails on: install not successful (or missing), unit not `active`, restarts >= 1, oom_kills > 0,
-    or memory slope above `th.rehearsal_slope_mb_per_min` (needs >= 2 samples; else not checked).
+    or memory slope above `th.rehearsal_slope_mb_per_min`. Without a fail reason but with fewer than
+    2 memory samples the slope is not evaluable and the verdict is inconclusive, never pass.
     """
     install = (summary.get("last_install") or {}).get("result")
     restarts = int(summary.get("restarts") or 0)
@@ -211,8 +236,12 @@ def assess_rehearsal_device(summary: dict, th: Thresholds) -> dict:
         reasons.append(f"oom_kills: {oom}")
     if slope is not None and slope > th.rehearsal_slope_mb_per_min:
         reasons.append(f"memory_slope: {slope:.2f} MB/min > {th.rehearsal_slope_mb_per_min}")
+    verdict = "fail" if reasons else "pass"
+    if not reasons and slope is None:
+        verdict = "inconclusive"
+        reasons.append(f"memory slope not evaluable: {len(pts)} sample(s)")
     return {
-        "verdict": "fail" if reasons else "pass",
+        "verdict": verdict,
         "reasons": reasons,
         "install_result": install,
         "restarts": restarts,
@@ -223,6 +252,10 @@ def assess_rehearsal_device(summary: dict, th: Thresholds) -> dict:
 
 
 def assess_rehearsal(per_hw_rev: dict[str, dict]) -> str:
-    """Overall rehearsal verdict: pass only if every hw_rev passed (and there is at least one)."""
-    ok = bool(per_hw_rev) and all(r.get("verdict") == "pass" for r in per_hw_rev.values())
-    return "pass" if ok else "fail"
+    """Overall rehearsal verdict: fail beats inconclusive (or empty), which beats pass."""
+    verdicts = [r.get("verdict") for r in per_hw_rev.values()]
+    if "fail" in verdicts:
+        return "fail"
+    if not verdicts or any(v != "pass" for v in verdicts):
+        return "inconclusive"
+    return "pass"

@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from agent.fleet_mcp import ledger as ledger_mod
+from agent.fleet_mcp.backends import MetricsUnavailable
 from agent.fleet_mcp.errors import PreconditionError
 from agent.fleet_mcp.models import Device
 
@@ -538,10 +539,11 @@ def test_start_wave_backend_error_leaves_phase(env):
 def test_lab_create_failure(env):
     pid = env.fleet.plan_rollout("v1.2", [2, "rest"])["plan_id"]
     env.lab.fail_create_on = 2  # rev A device already exists when rev B creation fails
-    err = refused_async("LAB_ERROR", env.fleet.rehearse, pid)
-    assert "lab controller unreachable" in err.message
+    out = run(env.fleet.rehearse(pid))
+    assert out["verdict"] == "inconclusive" and out["phase"] == "PLANNED"
+    assert out["per_hw_rev"]["B"]["verdict"] == "inconclusive"
+    assert "lab controller unreachable" in out["per_hw_rev"]["B"]["reasons"][0]
     assert env.lab.create_calls == 2 and env.lab.alive == 0 and env.lab._devices == {}
-    assert env.ledger.events(pid, types=["rehearsal"]) == []
     assert env.ledger.get_plan(pid).phase == "PLANNED"
     assert error_codes(env, pid) == ["LAB_ERROR"]
 
@@ -549,7 +551,8 @@ def test_lab_create_failure(env):
 def test_lab_summary_failure_destroys_devices(env):
     pid = env.fleet.plan_rollout("v1.2", [2, "rest"])["plan_id"]
     env.lab.fail_summary = True
-    refused_async("LAB_ERROR", env.fleet.rehearse, pid)
+    out = run(env.fleet.rehearse(pid))
+    assert out["verdict"] == "inconclusive" and set(out["per_hw_rev"]) == {"A", "B"}
     assert env.lab._devices == {} and env.lab.destroyed == ["mock-lab-001"]
     assert env.ledger.get_plan(pid).phase == "PLANNED"
 
@@ -790,3 +793,194 @@ def test_start_wave_partial_plan_needs_only_kept_hw_revs(tmp_path):
     assert rev["verdict"] == "pass" and "not_rehearsed" not in rev
     env.fleet.start_wave(pid, 1, rev["evidence_id"])
     assert {d for call in env.field.start_wave_calls for d in call[-1]} <= {"a1", "a2"}
+
+
+# 13. fail closed ---------------------------------------------------------------------------
+
+
+def unavailable(source: str = "prometheus") -> MetricsUnavailable:
+    return MetricsUnavailable(source, "boom")
+
+
+def test_observe_metrics_unavailable_is_inconclusive_and_refuses_next_wave(env):
+    pid = start_first_wave(env)
+    env.metrics.unavailable = unavailable()
+    obs = observe(env, pid)
+    assert obs["verdict"] == "inconclusive" and obs["phase"] == "WAVE_OBSERVED"
+    assert obs["reasons"] and all(
+        "metrics_unavailable" in r and r.startswith("hw_rev ") for r in obs["reasons"]
+    )
+    assert {r["verdict"] for r in obs["per_hw_rev"].values()} == {"inconclusive"}
+    assert "observe_wave again" in obs["next"]
+    (ev,) = env.ledger.events(pid, types=["observation"])
+    assert ev.payload["verdict"] == "inconclusive" and ev.payload["reasons"] == obs["reasons"]
+    refused("EVIDENCE_VERDICT", env.fleet.start_wave, pid, 2, obs["evidence_id"])
+    assert [c[0] for c in env.field.start_wave_calls] == [f"{pid}-wave1"]
+
+
+def test_observe_loki_unavailable_is_inconclusive(env):
+    pid = start_first_wave(env)
+    env.metrics.unavailable = unavailable("loki")
+    obs = observe(env, pid)
+    assert obs["verdict"] == "inconclusive" and "loki unavailable" in obs["reasons"][0]
+
+
+def test_observe_empty_metrics_never_healthy(env):
+    pid = start_first_wave(env)
+    env.metrics.empty = True
+    obs = observe(env, pid)
+    assert obs["verdict"] == "inconclusive" and obs["reasons"]
+    assert any("no metrics yet" in r for r in obs["reasons"])
+    refused("EVIDENCE_VERDICT", env.fleet.start_wave, pid, 2, obs["evidence_id"])
+    assert len(env.field.start_wave_calls) == 1
+
+
+def test_observe_without_control_or_baseline_is_inconclusive(env):
+    pid = start_first_wave(env)
+    for d in env.field.devices:
+        env.metrics.set(d, "v1.1", installed=False)  # no same-rev control data, no pre-update baseline
+    obs = observe(env, pid)
+    assert obs["verdict"] == "inconclusive"
+    assert any("no control or baseline metrics" in r for r in obs["reasons"])
+    refused("EVIDENCE_VERDICT", env.fleet.start_wave, pid, 2, obs["evidence_id"])
+
+
+def test_regression_beats_unavailable_in_another_hw_rev(env):
+    pid, _b_upd = regression_setup(env)
+    (a_upd,) = wave_of(env, pid, 1, "A")
+    # rev A queries come first (updated, control, then baseline): make every rev A call unavailable
+    real = env.metrics.device_stats
+
+    def flaky(devices, fw_version, start, end):
+        if any(d.hw_rev == "A" for d in devices):
+            raise unavailable()
+        return real(devices, fw_version, start, end)
+
+    env.metrics.device_stats = flaky
+    obs = observe(env, pid)
+    assert obs["verdict"] == "regression" and obs["affected_hw_revs"] == ["B"]
+    assert obs["per_hw_rev"]["A"]["verdict"] == "inconclusive" and "reasons" not in obs
+    assert a_upd in obs["per_hw_rev"]["A"]["updated_devices"]
+
+
+def test_rehearse_too_few_samples_is_inconclusive(env):
+    pid = env.fleet.plan_rollout("v1.2", [2, "rest"])["plan_id"]
+    env.lab.max_samples = 1
+    rev = run(env.fleet.rehearse(pid))
+    assert rev["verdict"] == "inconclusive" and rev["phase"] == "PLANNED"
+    assert all("memory slope not evaluable" in r for r in rev["per_hw_rev"]["A"]["reasons"])
+    assert rev["reasons"] and rev["reasons"][0].startswith("hw_rev A: ")
+    assert "run rehearse again" in rev["next"] and "do not start a wave" in rev["next"]
+    assert env.ledger.get_plan(pid).phase == "PLANNED"
+    assert env.lab.alive == 0 and len(env.lab.destroyed) == 2
+    (ev,) = env.ledger.events(pid, types=["rehearsal"])
+    assert ev.payload["verdict"] == "inconclusive" and ev.payload["reasons"] == rev["reasons"]
+    refused("BAD_PHASE", env.fleet.start_wave, pid, 1, rev["evidence_id"])
+    assert env.field.start_wave_calls == []
+
+
+def test_rehearse_lab_error_is_inconclusive_with_reason(env):
+    pid = env.fleet.plan_rollout("v1.2", [2, "rest"])["plan_id"]
+    env.lab.fail_create_on = 1
+    rev = run(env.fleet.rehearse(pid))
+    assert rev["verdict"] == "inconclusive" and rev["phase"] == "PLANNED"
+    assert any("lab_error" in r for r in rev["reasons"])
+    assert env.lab.alive == 0 and env.field.start_wave_calls == []
+
+
+def test_rehearse_lab_error_continues_with_next_batch(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2), lab_parallel=1)
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"])["plan_id"]
+    env.lab.fail_create_on = 1  # rev A's batch fails, rev B's batch runs
+    rev = run(env.fleet.rehearse(pid, minutes=1))
+    assert rev["per_hw_rev"]["A"]["verdict"] == "inconclusive"
+    assert rev["per_hw_rev"]["B"]["verdict"] == "pass"
+    assert rev["verdict"] == "inconclusive" and env.lab.alive == 0
+
+
+def test_rehearse_fail_beats_lab_error(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2), scenarios={"v1.2:B": "leak"}, lab_parallel=1)
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"])["plan_id"]
+    env.lab.fail_create_on = 1
+    rev = run(env.fleet.rehearse(pid, minutes=5))
+    assert rev["per_hw_rev"]["B"]["verdict"] == "fail" and rev["verdict"] == "fail"
+    assert rev["phase"] == "BLOCKED"
+
+
+def test_inconclusive_rerun_supersedes_earlier_pass(env):
+    pid, first = plan_and_rehearse(env)
+    assert first["verdict"] == "pass" and first["phase"] == "REHEARSED"
+    env.lab.max_samples = 1
+    second = run(env.fleet.rehearse(pid))
+    assert second["verdict"] == "inconclusive" and second["phase"] == "REHEARSED"
+    assert env.ledger.get_plan(pid).phase == "REHEARSED"
+    refused("EVIDENCE_SUPERSEDED", env.fleet.start_wave, pid, 1, first["evidence_id"])
+    refused("EVIDENCE_VERDICT", env.fleet.start_wave, pid, 1, second["evidence_id"])
+    assert env.field.start_wave_calls == []
+    env.lab.max_samples = None  # a clean re-run restores a startable pass
+    third = run(env.fleet.rehearse(pid))
+    assert third["verdict"] == "pass"
+    env.fleet.start_wave(pid, 1, third["evidence_id"])
+    assert len(env.field.start_wave_calls) == 1
+
+
+def test_inconclusive_rehearsal_cannot_justify_a_hold(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2))
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"])["plan_id"]
+    env.lab.max_samples = 1
+    rev = run(env.fleet.rehearse(pid, minutes=5))
+    assert rev["per_hw_rev"]["B"]["verdict"] == "inconclusive"
+    refused(
+        "EVIDENCE_VERDICT",
+        env.fleet.plan_rollout,
+        "v1.2",
+        None,
+        "hw_rev",
+        ["B"],
+        rev["evidence_id"],
+    )
+    assert env.ledger.latest_plan().plan_id == pid
+
+
+def rolled_back(env: Env):
+    """Regression on rev B, halted and rolled back; return (pid, b_updated_id)."""
+    pid, b_upd, obs = halted(env)
+    env.fleet.rollback(pid, "v1.1", obs["evidence_id"], cohort={"hw_rev": "B"})
+    return pid, b_upd
+
+
+def test_verify_recovery_metrics_unavailable_is_inconclusive(env):
+    pid, _b_upd = rolled_back(env)
+    env.metrics.unavailable = unavailable()
+    ver = run(env.fleet.verify_recovery(pid))
+    assert ver["verdict"] == "inconclusive" and ver["phase"] == "ROLLED_BACK"
+    assert any("metrics_unavailable" in r for r in ver["reasons"])
+    assert "call verify_recovery again" in ver["next"]
+    (ev,) = env.ledger.events(pid, types=["verification"])
+    assert ev.payload["verdict"] == "inconclusive" and ev.payload["reasons"] == ver["reasons"]
+    assert env.ledger.get_plan(pid).phase == "ROLLED_BACK"
+    env.metrics.unavailable = None  # retry once metrics are back
+    again = run(env.fleet.verify_recovery(pid))
+    assert again["verdict"] == "recovered" and again["phase"] == "VERIFIED"
+
+
+def test_verify_recovery_missing_metrics_is_inconclusive(env):
+    pid, b_upd = rolled_back(env)
+    env.metrics.set(b_upd, "v1.1", installed=False, samples=0, mem_slope_mb_per_min=None, fps_median=None)
+    ver = run(env.fleet.verify_recovery(pid))
+    assert ver["verdict"] == "inconclusive" and ver["phase"] == "ROLLED_BACK"
+    assert ver["per_device"][b_upd]["recovered"] is False and "no metrics" in ver["per_device"][b_upd]["note"]
+    assert any(b_upd in r for r in ver["reasons"])
+
+
+def test_verify_recovery_definite_failure_beats_missing_metrics(env):
+    pid, b_upd, obs = halted(env)
+    env.fleet.rollback(pid, "v1.1", obs["evidence_id"], cohort={"hw_rev": "B"})
+    env.metrics.set(b_upd, "v1.1", restarts=2)
+    ver = run(env.fleet.verify_recovery(pid))
+    assert ver["verdict"] == "not_recovered" and "reasons" not in ver
+    # and with metrics unavailable, a device on the wrong version is still a definite failure
+    env.field.installed[b_upd] = "v1.2"
+    env.metrics.unavailable = unavailable()
+    ver = run(env.fleet.verify_recovery(pid))
+    assert ver["verdict"] == "not_recovered" and ver["phase"] == "ROLLED_BACK"

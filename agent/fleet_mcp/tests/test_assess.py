@@ -10,6 +10,7 @@ from agent.fleet_mcp.assess import (
     assess_rehearsal,
     assess_rehearsal_device,
     assess_wave,
+    inconclusive_hw_rev,
     slope_mb_per_min,
 )
 from agent.fleet_mcp.models import DeviceStats, Thresholds
@@ -434,16 +435,22 @@ def test_rehearsal_device_slope_at_threshold_passes():
     assert r["verdict"] == "pass"
 
 
-def test_rehearsal_device_slope_not_checked_with_one_sample():
+def test_rehearsal_device_one_sample_is_inconclusive():
     r = assess_rehearsal_device(lab(memory_samples=[{"t": 0, "bytes": 1}]), TH)
-    assert r["verdict"] == "pass" and r["mem_slope_mb_per_min"] is None
+    assert r["verdict"] == "inconclusive" and r["mem_slope_mb_per_min"] is None
+    assert r["reasons"] == ["memory slope not evaluable: 1 sample(s)"]
 
 
-def test_rehearsal_device_no_samples_key():
+def test_rehearsal_device_no_samples_key_is_inconclusive():
     s = lab()
     del s["memory_samples"]
     r = assess_rehearsal_device(s, TH)
-    assert r["verdict"] == "pass" and r["mem_slope_mb_per_min"] is None
+    assert r["verdict"] == "inconclusive" and r["reasons"] == ["memory slope not evaluable: 0 sample(s)"]
+
+
+def test_rehearsal_device_fail_reason_beats_few_samples():
+    r = assess_rehearsal_device(lab(restarts=1, memory_samples=[{"t": 0, "bytes": 1}]), TH)
+    assert r["verdict"] == "fail" and r["reasons"] == ["restarts: 1"]
 
 
 def test_rehearsal_device_collects_all_reasons():
@@ -464,7 +471,33 @@ def test_rehearsal_device_handles_null_counters():
 def test_assess_rehearsal_overall():
     ok = assess_rehearsal_device(lab(), TH)
     bad = assess_rehearsal_device(lab(restarts=1), TH)
+    few = assess_rehearsal_device(lab(memory_samples=[]), TH)
     assert assess_rehearsal({"A": ok, "B": ok}) == "pass"
     assert assess_rehearsal({"A": ok, "B": bad}) == "fail"
     assert assess_rehearsal({"A": bad}) == "fail"
-    assert assess_rehearsal({}) == "fail"
+    assert assess_rehearsal({"A": ok, "B": few}) == "inconclusive"
+    assert assess_rehearsal({"A": few, "B": bad, "C": ok}) == "fail"
+    assert assess_rehearsal({}) == "inconclusive"
+
+
+# fail closed: no comparison data ------------------------------------------------
+
+
+def test_no_control_and_no_baseline_is_inconclusive():
+    r = run([st("u1"), st("u2")], [], control_type="baseline")
+    assert r["verdict"] == "inconclusive"
+    assert "no control or baseline metrics: cannot compare updated devices" in r["reasons"]
+
+
+def test_no_metrics_reason_wording():
+    r = run([st("u1"), st("u2", installed=False)], [st("c1")])
+    assert r["verdict"] == "inconclusive"
+    assert "1 device(s) have no metrics yet (not installed, or Prometheus has no data)" in r["reasons"]
+
+
+def test_inconclusive_hw_rev_shape_matches_assess_hw_rev():
+    r = inconclusive_hw_rev("A", ["metrics_unavailable: x"], ["u2", "u1"])
+    assert r["verdict"] == "inconclusive" and r["signals"] == [] and r["control_type"] == "unavailable"
+    assert r["updated_devices"] == ["u1", "u2"]
+    assert set(r) == set(run([st()], [st("c1")]))
+    assert assess_wave([r])["verdict"] == "inconclusive"
