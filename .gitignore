@@ -10,3 +10,8 @@ build/
 run/
 .ruff_cache/
 .pytest_cache/
+agent/spike/*.log
+agent/spike/*_events.json
+agent/spike/spike_markers.txt
+agent/spike/openapi.json
+agent/spike/*.out
