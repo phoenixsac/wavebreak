@@ -115,7 +115,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | in-progress | — | hawkBit OpenAPI inspected live; each wave will be a separate one-group rollout |
+| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | done | smoke | Live hawkBit OpenAPI verified. Created an unstarted rollout for edge-001; it settled at ready with one group while installedDS remained v1.0. start is a separate method. Ruff passes. |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
@@ -156,3 +156,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Implemented fleetctl container up/down/status/logs; lite fleet booted and registered (T7.2) |
 | 2026-09-26 | Codex MVP | Published bundles to live H2 hawkBit and seeded all four devices (T7.3) |
 | 2026-09-26 | Codex MVP | Verified Makefile fleet and seed integration (T7.4) |
+| 2026-09-26 | Codex MVP | Added hawkBit Management API client; verified a ready one-group rollout stays unstarted (T11.1) |

@@ -372,6 +372,8 @@ Auth header: `Authorization: GatewayToken <token>` (or `TargetToken <token>`), b
 
 Auth: HTTP basic (user from `.env`).
 
+Canary waves are separate hawkBit rollouts. `HawkbitClient.create_wave()` creates one rollout with `amountGroups: 1` and leaves it unstarted; `start_rollout()` is a separate call after approval. The next wave is another create call with its own target filter, so success in one wave cannot start the next wave.
+
 ### ota-agent local API (lab devices only)
 
 | Endpoint | Method | Purpose |
