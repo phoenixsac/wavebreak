@@ -108,7 +108,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
-| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | in-progress | — | Critical path; provisioned JSON in platform/grafana/dashboards/ |
+| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | done | smoke | Provisioned dashboard API lists five panels; Grafana PromQL and Loki LogQL accepted the panel queries. |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
 | T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
 
@@ -162,3 +162,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Persisted lite H2, republished releases, restarted hawkBit, and verified v1.0–v1.4 survived (T2.8) |
 | 2026-09-26 | Codex MVP | Rebuilt latest device image, verified frame-scale env and quick boot, removed smoke container (T6.5) |
 | 2026-09-26 | Codex build | Completed and smoke-tested isolated lab controller with read-only hawkBit artifact access; deleted lab device (T9.1–T9.3) |
+| 2026-09-26 | Codex build | Provisioned Wavebreak Fleet dashboard; verified Grafana loads five panels and Prometheus/Loki accept all queries (T10.2) |
