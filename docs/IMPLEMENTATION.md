@@ -146,9 +146,9 @@ STATUS: IN-PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T14.1 | Make demo-reset wait for the selected profile's fleet count | orch | T13.1 | done | static | Replaced the hard-coded 4-device wait with the YAML-derived profile count; 20-device AWS run remains unverified. |
-| T14.2 | Add committed-archive AWS sync, mode-0600 secrets, conditional image builds, and systemd agent services | orch | T12.3 | in-progress | static | `scripts/aws-sync.sh`, `make aws-sync`, TrueForge and fleet MCP units; first AWS install and reboot behavior pending. |
-| T14.3 | Deploy and verify the full container profile on the supplied EC2 instance | orch | T14.2 | todo | — | Reset 20 devices to healthy v1.1; verify lab, Grafana data, TrueForge registration and one gateway turn. |
-| T14.4 | Document AWS update, re-registration and SSH tunnel workflow | orch | T14.2 | in-progress | static | `docs/aws-deploy.md` and architecture runbook updated; final commands/results to reconcile after deploy. |
+| T14.2 | Add committed-archive AWS sync, mode-0600 secrets, conditional image builds, and systemd agent services | orch | T12.3 | done | static | `scripts/aws-sync.sh`, `make aws-sync`, TrueForge and fleet MCP units; first AWS install and reboot behavior pending. |
+| T14.3 | Deploy and verify the full container profile on the supplied EC2 instance | orch | T14.2 | in-progress | — | Reset 20 devices to healthy v1.1; verify lab, Grafana data, TrueForge registration and one gateway turn. |
+| T14.4 | Document AWS update, re-registration and SSH tunnel workflow | orch | T14.2 | done | static | `docs/aws-deploy.md` and architecture runbook updated; exact tunnel and registration commands included. |
 
 ## Needs human
 

@@ -6,7 +6,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 AWS_HOST=${AWS_HOST:-ubuntu@65.0.29.75}
 AWS_KEY=${AWS_KEY:-${HOME}/.ssh/wavebreak-key.pem}
-AWS_REMOTE_REPO=${AWS_REMOTE_REPO:-/home/ubuntu/wavebreak}
+AWS_REMOTE_REPO=/home/ubuntu/wavebreak
 [[ -r $AWS_KEY ]] || { echo "aws-sync: SSH key is not readable: $AWS_KEY" >&2; exit 1; }
 [[ -f .env && -f agent/spike/.env ]] || {
   echo 'aws-sync: requires local .env and agent/spike/.env; refusing to upload incomplete secrets' >&2
@@ -55,6 +55,49 @@ import tempfile
 
 repo, archive, env_file, agent_env = map(Path, sys.argv[1:])
 repo.parent.mkdir(parents=True, exist_ok=True)
+
+def env_values(path):
+    result = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key, value = stripped.split("=", 1)
+                result[key] = value.strip().strip("'\"")
+    return result
+
+previous_env = env_values(repo / ".env")
+incoming_env = env_values(env_file)
+preserve_defaults = {
+    "PROFILE": {"lite"},
+    "PUBLIC_HOST": {"", "localhost", "127.0.0.1"},
+    "HAWKBIT_PASSWORD": {"", "admin"},
+    "GRAFANA_ADMIN_PASSWORD": {"", "admin"},
+    "HAWKBIT_LAB_PASSWORD": {"", "lab"},
+    "HAWKBIT_GATEWAY_TOKEN": {"", "change-me-gateway-token"},
+    "LAB_API_TOKEN": {"", "change-me-lab-token"},
+    "LAB_DEVICE_TOKEN": {"", "change-me-lab-device-token"},
+    "GRAFANA_SA_TOKEN": {""},
+}
+preserved = {
+    key: previous_env[key]
+    for key, defaults in preserve_defaults.items()
+    if incoming_env.get(key, "") in defaults and previous_env.get(key, "") and previous_env[key] not in defaults
+}
+if preserved:
+    lines = []
+    replaced = set()
+    for line in env_file.read_text().splitlines():
+        if line and not line.lstrip().startswith("#") and "=" in line:
+            key = line.split("=", 1)[0]
+            if key in preserved:
+                lines.append(f"{key}={preserved[key]}")
+                replaced.add(key)
+                continue
+        lines.append(line)
+    lines.extend(f"{key}={value}" for key, value in preserved.items() if key not in replaced)
+    env_file.write_text("\n".join(lines) + "\n")
+
 with tempfile.TemporaryDirectory(prefix=".wavebreak-stage-", dir=repo.parent) as temp:
     stage = Path(temp) / "repo"
     stage.mkdir(mode=0o755)
@@ -75,7 +118,10 @@ with tempfile.TemporaryDirectory(prefix=".wavebreak-stage-", dir=repo.parent) as
     os.chmod(target_agent_env, 0o600)
     backup = repo.parent / (repo.name + ".aws-sync-old")
     if backup.exists():
-        shutil.rmtree(backup)
+        if not repo.exists():
+            backup.rename(repo)
+        else:
+            shutil.rmtree(backup)
     if repo.exists():
         repo.rename(backup)
     stage.rename(repo)
