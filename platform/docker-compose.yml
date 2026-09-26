@@ -64,6 +64,23 @@ services:
     mem_limit: ${HAWKBIT_MEM:-900m}
     restart: unless-stopped
 
+  hawkbit-ui:
+    image: ${HAWKBIT_UI_IMAGE:-hawkbit/hawkbit-ui:1.1.0}
+    profiles: [full, hawkbit-ui]
+    environment:
+      PORT: "8080"
+      HAWKBIT_SERVER_MGMT_URL: http://hawkbit:8080
+      X_MS: 64m
+      X_MX: ${HAWKBIT_UI_HEAP:-384m}
+      XX_METASPACE_SIZE: 128m
+      XX_MAX_METASPACE_SIZE: 192m
+    ports:
+      - "${HAWKBIT_UI_PORT:-8081}:8080"
+    networks: [backend]
+    depends_on: [hawkbit]
+    mem_limit: ${HAWKBIT_UI_MEM:-640m}
+    restart: unless-stopped
+
   hawkbit-mcp:
     image: ${HAWKBIT_IMAGE:-hawkbit/hawkbit-update-server:1.1.0}
     profiles: [mcp]

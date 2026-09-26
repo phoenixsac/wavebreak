@@ -40,7 +40,7 @@ STATUS: IN PROGRESS
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
 | T2.7 | hawkBit tenant bootstrap script `scripts/hawkbit-config.sh`: enable gateway-token auth, set token from `.env`, set polling interval | orch | T2.1 | done | smoke | Verified against running server. Min polling 30s by default; lowered with -Dhawkbit.controller.minPollingTime=00:00:05, 10s accepted |
 | T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | done | smoke | Configured file-backed H2 in the writable artifact volume with `MODE=LEGACY`; republished v1.0–v1.4, restarted hawkBit, and verified all five distribution sets remained. |
-| T2.9 | Optional separate hawkBit UI image matching server 1.1.0; enabled by full and opt-in for lite, Management API URL and heap cap | orch | T2.3 | in-progress | — | Docker Hub has `hawkbit/hawkbit-ui:1.1.0`; inspecting its image configuration before compose wiring. |
+| T2.9 | Optional separate hawkBit UI image matching server 1.1.0; enabled by full and opt-in for lite, Management API URL and heap cap | orch | T2.3 | done | smoke | Verified Docker Hub tag 1.1.0 and image settings; lite opt-in UI returned login redirect at :8081, used `HAWKBIT_SERVER_MGMT_URL`, and runs with `-Xmx384m` (about 238 MiB resident). Full profile selection and Compose config verified statically. |
 
 ### M3 — Bundles + publish
 
@@ -164,3 +164,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Rebuilt latest device image, verified frame-scale env and quick boot, removed smoke container (T6.5) |
 | 2026-09-26 | Codex build | Completed and smoke-tested isolated lab controller with read-only hawkBit artifact access; deleted lab device (T9.1–T9.3) |
 | 2026-09-26 | Codex build | Provisioned Wavebreak Fleet dashboard; verified Grafana loads five panels and Prometheus/Loki accept all queries (T10.2) |
+| 2026-09-26 | Codex build | Added separate optional hawkBit UI 1.1.0; smoke-tested lite opt-in at :8081 with a 384 MiB heap cap (T2.9) |

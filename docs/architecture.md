@@ -70,7 +70,8 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph backend["Backend zone"]
-        hb["hawkBit<br/><i>update server + UI</i><br/>:8080"]
+        hb["hawkBit update server<br/><i>DDI + Management API</i><br/>:8080"]
+        hbui["hawkBit UI<br/><i>optional separate image</i><br/>:8081"]
         hbdb[("hawkBit DB<br/><i>full profile only;<br/>lite uses H2</i>")]
         prom["Prometheus<br/><i>remote-write receiver</i><br/>:9090"]
         loki["Loki<br/>:3100"]
@@ -92,6 +93,7 @@ flowchart LR
     agent["Rollout Agent"]
 
     d1 & dn -- "DDI poll" --> hb
+    hbui -- "Management API" --> hb
     d1 & dn -- "remote_write" --> prom
     d1 & dn -- "Loki push" --> loki
     hb --- hbdb
@@ -326,7 +328,7 @@ hawkBit server facts (T2.1; image inspected, rest read from docs):
 
 | Item | Value |
 |------|-------|
-| Image | `hawkbit/hawkbit-update-server:1.1.0` (monolith: UI, DDI, Management API; `PROFILES=h2` default). Split images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
+| Image | `hawkbit/hawkbit-update-server:1.1.0` (DDI + Management API; `PROFILES=h2` default). The UI is a separate image. Split server images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
 | Heap | entrypoint uses `X_MS`, `X_MX`, `XX_MAX_METASPACE_SIZE`, `XX_METASPACE_SIZE`, `JAVA_OPTS` env (defaults 768m heap, 250m metaspace) |
 | DB (full) | official compose `docker/mysql/docker-compose-monolith-mysql.yml`: `PROFILES=mysql`, `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` |
 | Users | default admin/admin; lab uses `hawkbit.security.user.lab.{tenant,password,permissions}` with target, distribution-set, and software-module read authorities |
@@ -336,6 +338,8 @@ hawkBit server facts (T2.1; image inspected, rest read from docs):
 | OpenAPI | `http://<host>:8080/swagger-ui/index.html`, JSON `/v3/api-docs` (verified; no `/actuator/health`, image has no curl) |
 | Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab can list software modules and download artifacts; target creation returns 403 |
 | Polling (verified) | tenant `pollingTime` min is 30s unless `-Dhawkbit.controller.minPollingTime=00:00:05`; tenant config path is `/rest/v1/system/configs/{key}` |
+
+hawkBit UI facts: Docker Hub publishes [`hawkbit/hawkbit-ui:1.1.0`](https://hub.docker.com/r/hawkbit/hawkbit-ui/tags), matching the server release. It runs on Java 21, listens on `PORT` (default 8088), and reads the Management API URL from `hawkbit.server.mgmt-url` (`HAWKBIT_SERVER_MGMT_URL`). Compose sets port 8080 inside the container, maps host port 8081, and caps heap at 384 MiB. `make up PROFILE=full` enables it; lite enables it with `make up PROFILE=lite HAWKBIT_UI=1`. The UI login is the hawkBit user; `.env` defaults to `admin` / `admin`.
 
 hawkBit MCP server (T2.2): standalone Spring Boot jar `org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0` on Maven Central (54 MB, no build needed). Runs on the JRE of the hawkBit image (`java -jar`). Properties: `server.port=8081`, `spring.ai.mcp.server.protocol=STREAMABLE` (path `/mcp`, TODO(verify) S1), `hawkbit.mcp.mgmt-url=${HAWKBIT_URL}`. Clients send their own hawkBit credentials as `Authorization: Basic ...`; the server validates them against hawkBit and forwards. Operation switches: `hawkbit.mcp.operations.delete-enabled`, `hawkbit.mcp.operations.rollouts.start-enabled`, `...approve-enabled`. Tools cover targets, target filters, software modules, distribution sets, rollouts (create/start/pause/resume/stop/approve/deny/retry/trigger-next-group), actions.
 
@@ -553,6 +557,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D26 | E2E restart checks take the maximum over matching Prometheus series and scope the baseline to the installed firmware version | Remote-write retains series across firmware label changes and older versions can remain visible | 2026-09-26 |
 | D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
 | D28 | Grafana's `Wavebreak Fleet` dashboard is provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` and reads Prometheus metrics plus Loki runtime logs | One checked-in dashboard exposes version mix, app memory, restarts, FPS, and OOM/killed-process evidence | 2026-09-26 |
+| D29 | hawkBit UI is a separate optional 1.1.0 service, with a 384 MiB JVM heap cap, enabled by default in full and only by `HAWKBIT_UI=1` in lite | Keep the browser UI available for full deployments without adding its Java process to the memory-constrained lite backend by default | 2026-09-26 |
 
 ---
 
@@ -591,4 +596,29 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 
 ## 12. Runbook
 
-> Filled in by T12.5 with exact commands for AWS and the local fallback.
+### Local container MVP (lite)
+
+```bash
+cp .env.example .env
+make up PROFILE=lite
+make bundles publish
+make fleet PROFILE=lite RUNTIME=container
+make seed PROFILE=lite
+scripts/e2e.sh
+make fleet-down PROFILE=lite RUNTIME=container
+make lab PROFILE=lite
+```
+
+The lab controller URL is `http://localhost:8090`; Grafana is `http://localhost:3000` (`admin` / `GRAFANA_ADMIN_PASSWORD`, default `admin`). Run `make down` when finished. Lite hawkBit uses file-backed H2 in the `hawkbit-artifacts` volume. If that volume is intentionally removed, run `make publish` and `make seed PROFILE=lite` again.
+
+Optional lite hawkBit browser UI:
+
+```bash
+make up PROFILE=lite HAWKBIT_UI=1
+```
+
+Open `http://localhost:8081` and log in as `admin` with `HAWKBIT_PASSWORD` from `.env` (default `admin`).
+
+### Full profile
+
+On a host with memory for the full backend and 20-device fleet, `make up PROFILE=full` starts MySQL and the hawkBit UI by default. Continue with `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, and `make seed PROFILE=full`. The UI uses the same `http://localhost:8081` URL and admin credentials described above.

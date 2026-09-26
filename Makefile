@@ -1,11 +1,15 @@
 # PROFILE=lite|full  RUNTIME=container|firecracker
 PROFILE ?= lite
 RUNTIME ?= container
-LAB_CONTROLLER_PORT ?= 8090
+HAWKBIT_UI ?= 0
 export PROFILE RUNTIME
 
 ENV_FILE := $(if $(wildcard .env),.env,.env.example)
-COMPOSE_PROFILES := $(if $(filter full,$(PROFILE)),--profile full,) $(if $(wildcard build/hawkbit-mcp/hawkbit-mcp-server.jar),--profile mcp,)
+LAB_CONTROLLER_PORT ?= $(shell sed -n 's/^LAB_CONTROLLER_PORT=//p' $(ENV_FILE) | head -1)
+LAB_CONTROLLER_PORT := $(if $(strip $(LAB_CONTROLLER_PORT)),$(LAB_CONTROLLER_PORT),8090)
+HAWKBIT_UI_PORT ?= $(shell sed -n 's/^HAWKBIT_UI_PORT=//p' $(ENV_FILE) | head -1)
+HAWKBIT_UI_PORT := $(if $(strip $(HAWKBIT_UI_PORT)),$(HAWKBIT_UI_PORT),8081)
+COMPOSE_PROFILES := $(if $(filter full,$(PROFILE)),--profile full,) $(if $(filter 1,$(HAWKBIT_UI)),--profile hawkbit-ui,) $(if $(wildcard build/hawkbit-mcp/hawkbit-mcp-server.jar),--profile mcp,)
 COMPOSE := docker compose --env-file $(ENV_FILE) -f platform/docker-compose.yml $(COMPOSE_PROFILES)
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -21,12 +25,15 @@ up:
 	$(COMPOSE) up -d
 	./scripts/wait-http.sh http://localhost:8080/v3/api-docs 300
 	./scripts/hawkbit-config.sh
+	@if [ "$(PROFILE)" = full ] || [ "$(HAWKBIT_UI)" = 1 ]; then \
+	  ./scripts/wait-http.sh http://localhost:$(HAWKBIT_UI_PORT)/ 180; \
+	fi
 
 down:
-	$(COMPOSE) --profile full --profile mcp down
+	$(COMPOSE) --profile full --profile mcp --profile lab --profile hawkbit-ui down
 
 reset:
-	$(COMPOSE) --profile full --profile mcp down -v --remove-orphans
+	$(COMPOSE) --profile full --profile mcp --profile lab --profile hawkbit-ui down -v --remove-orphans
 
 ps:
 	$(COMPOSE) ps
