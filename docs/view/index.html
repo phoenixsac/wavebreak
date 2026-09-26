@@ -1,0 +1,2299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wavebreak Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --bg-sidebar: #f5f5f5;
+  --border: #e0e0e0;
+  --accent: #2563eb;
+  --accent-light: #dbeafe;
+  --code-bg: #f3f4f6;
+  --table-stripe: #f9fafb;
+  --blockquote-border: #d1d5db;
+  --blockquote-bg: #f9fafb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f0f0f;
+    --fg: #e5e5e5;
+    --bg-sidebar: #1a1a1a;
+    --border: #333;
+    --accent: #60a5fa;
+    --accent-light: #1e3a5f;
+    --code-bg: #1e1e1e;
+    --table-stripe: #1a1a1a;
+    --blockquote-border: #555;
+    --blockquote-bg: #1a1a1a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f0f0f;
+  --fg: #e5e5e5;
+  --bg-sidebar: #1a1a1a;
+  --border: #333;
+  --accent: #60a5fa;
+  --accent-light: #1e3a5f;
+  --code-bg: #1e1e1e;
+  --table-stripe: #1a1a1a;
+  --blockquote-border: #555;
+  --blockquote-bg: #1a1a1a;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 280px;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  z-index: 100;
+  transition: transform 0.3s;
+}
+.sidebar h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.nav-link {
+  display: block;
+  padding: 6px 8px;
+  text-decoration: none;
+  color: var(--fg);
+  font-size: 13px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+.nav-link:hover, .nav-link.active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+/* Main */
+.main {
+  margin-left: 280px;
+  padding: 32px 48px;
+  max-width: 960px;
+}
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 16px; }
+  .menu-toggle { display: block !important; }
+}
+.menu-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 200;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+/* Content */
+h1 { font-size: 28px; margin: 24px 0 16px; }
+h2 { font-size: 22px; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+h3 { font-size: 18px; margin: 24px 0 8px; }
+h4 { font-size: 15px; margin: 16px 0 6px; }
+p { margin: 8px 0; }
+a { color: var(--accent); }
+code {
+  background: var(--code-bg);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Consolas', 'Fira Code', monospace;
+}
+pre {
+  background: var(--code-bg);
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+pre code { background: none; padding: 0; }
+blockquote {
+  border-left: 3px solid var(--blockquote-border);
+  background: var(--blockquote-bg);
+  padding: 12px 16px;
+  margin: 12px 0;
+  border-radius: 0 4px 4px 0;
+}
+ul, ol { margin: 8px 0; padding-left: 24px; }
+li { margin: 4px 0; }
+hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+th { background: var(--bg-sidebar); font-weight: 600; }
+tr:nth-child(even) { background: var(--table-stripe); }
+
+/* Mermaid */
+.mermaid-container {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  cursor: zoom-in;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+.mermaid-container.zoomed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+  border-radius: 0;
+  overflow: auto;
+}
+.mermaid-container.zoomed .mermaid {
+  transform: scale(1.3);
+}
+
+/* Mode badge */
+.mode-badge {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 200;
+  background: var(--accent);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Present mode */
+body.present .sidebar { display: none; }
+body.present .main {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+}
+body.present .slide {
+  display: none;
+  min-height: 100vh;
+  padding: 48px 64px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+}
+body.present .slide.active {
+  display: flex;
+}
+body.present .slide h1,
+body.present .slide h2 {
+  font-size: 36px;
+}
+body.present .mermaid-container {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+/* Slide counter */
+.slide-counter {
+  display: none;
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  z-index: 200;
+}
+body.present .slide-counter { display: block; }
+</style>
+</head>
+<body>
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+<div class="mode-badge" onclick="togglePresent()" title="Press P to toggle">Read</div>
+<div class="slide-counter"></div>
+
+<nav class="sidebar">
+  <h3>Wavebreak</h3>
+  <a class="nav-link" href="#wavebreak-architecture" data-section="wavebreak-architecture">Wavebreak — Architecture</a>
+<a class="nav-link" href="#table-of-contents" data-section="table-of-contents">Table of Contents</a>
+<a class="nav-link" href="#0-journey" data-section="0-journey">0. Journey</a>
+<a class="nav-link" href="#1-c4-l1-system-context" data-section="1-c4-l1-system-context">1. C4 L1: System context</a>
+<a class="nav-link" href="#2-c4-l2-containers" data-section="2-c4-l2-containers">2. C4 L2: Containers</a>
+<a class="nav-link" href="#3-c4-l3-components" data-section="3-c4-l3-components">3. C4 L3: Components</a>
+<a class="nav-link" href="#4-key-flows" data-section="4-key-flows">4. Key flows</a>
+<a class="nav-link" href="#5-interfaces" data-section="5-interfaces">5. Interfaces</a>
+<a class="nav-link" href="#6-data" data-section="6-data">6. Data</a>
+<a class="nav-link" href="#7-fault-catalogue" data-section="7-fault-catalogue">7. Fault catalogue</a>
+<a class="nav-link" href="#8-rollout-state-machine" data-section="8-rollout-state-machine">8. Rollout state machine</a>
+<a class="nav-link" href="#9-deployment-and-runbook" data-section="9-deployment-and-runbook">9. Deployment and runbook</a>
+<a class="nav-link" href="#10-decisions-log" data-section="10-decisions-log">10. Decisions log</a>
+<a class="nav-link" href="#11-open-questions-and-todo-verify" data-section="11-open-questions-and-todo-verify">11. Open questions and TODO(verify)</a>
+<a class="nav-link" href="#12-drift-report" data-section="12-drift-report">12. Drift report</a>
+</nav>
+
+<main class="main">
+<section id="wavebreak-architecture" class="slide"><h1>Wavebreak — Architecture</h1><blockquote>Wavebreak catches bad OTA rollouts at runtime and rolls them back, with your approval.</blockquote>
+<p>Facts here match the code (audited 2026-09-26). Intent and the agent deep dive live in <code>docs/agent-design.md</code>; this file links to it instead of repeating it. Deviations of code from agreed intent are in <a href="#12-drift-report">12. Drift report</a>.</p></section>
+<section id="table-of-contents" class="slide"><h2>Table of Contents</h2><ul>
+<li><a href="#0-journey">0. Journey</a></li>
+<li><a href="#1-c4-l1-system-context">1. C4 L1: System context</a></li>
+<li><a href="#2-c4-l2-containers">2. C4 L2: Containers</a></li>
+<li><a href="#3-c4-l3-components">3. C4 L3: Components</a></li>
+<li><a href="#3-1-simulated-device">3.1 Simulated device</a></li>
+<li><a href="#3-2-ota-agent">3.2 ota-agent</a></li>
+<li><a href="#3-3-lab-controller">3.3 Lab controller</a></li>
+<li><a href="#3-4-fleet-mcp-server">3.4 Fleet MCP server</a></li>
+<li><a href="#3-5-trueforge-agent">3.5 TrueForge agent</a></li>
+<li><a href="#4-key-flows">4. Key flows</a></li>
+<li><a href="#4-1-release-publish">4.1 Release publish</a></li>
+<li><a href="#4-2-healthy-ota-update-with-a-b-install">4.2 Healthy OTA update with A/B install</a></li>
+<li><a href="#4-3-rehearsal">4.3 Rehearsal</a></li>
+<li><a href="#4-4-evidence-gated-action-with-approval">4.4 Evidence-gated action with approval</a></li>
+<li><a href="#4-5-scene-1-v1-3-blocked">4.5 Scene 1: v1.3 blocked</a></li>
+<li><a href="#4-6-scene-2-v1-2-partial-rollout">4.6 Scene 2: v1.2 partial rollout</a></li>
+<li><a href="#4-7-scene-3-v1-4-full-rollout">4.7 Scene 3: v1.4 full rollout</a></li>
+<li><a href="#4-8-rollback">4.8 Rollback</a></li>
+<li><a href="#5-interfaces">5. Interfaces</a></li>
+<li><a href="#5-1-master-table">5.1 Master table</a></li>
+<li><a href="#5-2-hawkbit-ddi-api-device-facing">5.2 hawkBit DDI API (device-facing)</a></li>
+<li><a href="#5-3-hawkbit-management-api-calls-actually-made">5.3 hawkBit Management API calls actually made</a></li>
+<li><a href="#5-4-ota-agent-local-api-lab-devices-only">5.4 ota-agent local API (lab devices only)</a></li>
+<li><a href="#5-5-lab-controller-api-agent-facing">5.5 Lab controller API (agent-facing)</a></li>
+<li><a href="#5-6-fleet-mcp-tools">5.6 Fleet MCP tools</a></li>
+<li><a href="#5-7-trueforge-api-used">5.7 TrueForge API used</a></li>
+<li><a href="#5-8-telemetry-ingest-and-fluent-bit-pipeline">5.8 Telemetry ingest and Fluent Bit pipeline</a></li>
+<li><a href="#5-9-ports">5.9 Ports</a></li>
+<li><a href="#6-data">6. Data</a></li>
+<li><a href="#6-1-device-metrics-textfile-collector">6.1 Device metrics (textfile collector)</a></li>
+<li><a href="#6-2-log-streams-loki">6.2 Log streams (Loki)</a></li>
+<li><a href="#6-3-boot-and-availability-records">6.3 Boot and availability records</a></li>
+<li><a href="#6-4-device-identity-and-hawkbit-attributes">6.4 Device identity and hawkBit attributes</a></li>
+<li><a href="#6-5-ledger-schema">6.5 Ledger schema</a></li>
+<li><a href="#7-fault-catalogue">7. Fault catalogue</a></li>
+<li><a href="#8-rollout-state-machine">8. Rollout state machine</a></li>
+<li><a href="#9-deployment-and-runbook">9. Deployment and runbook</a></li>
+<li><a href="#9-1-local-lite-runbook">9.1 Local lite runbook</a></li>
+<li><a href="#9-2-full-profile">9.2 Full profile</a></li>
+<li><a href="#9-3-aws-launch-checklist">9.3 AWS launch checklist</a></li>
+<li><a href="#10-decisions-log">10. Decisions log</a></li>
+<li><a href="#11-open-questions-and-todo-verify">11. Open questions and TODO(verify)</a></li>
+<li><a href="#12-drift-report">12. Drift report</a></li>
+<li><a href="#12-1-code-versus-agreed-intent">12.1 Code versus agreed intent</a></li>
+<li><a href="#12-2-environment-code-versus-doc-claims">12.2 Environment code versus doc claims</a></li>
+<li><a href="#12-3-docs-corrected-to-match-the-code-summary">12.3 Docs corrected to match the code (summary)</a></li>
+</ul>
+<hr></section>
+<section id="0-journey" class="slide"><h2>0. Journey</h2><p><strong>Pain point.</strong> A firmware rollout to an edge AI fleet &quot;succeeds&quot; (install OK), then fails at runtime: memory leak, OOM kill loop, config crash loop. Often only a subset is hit (one hardware revision, one region). hawkBit rollout thresholds only count install failures, so the regression keeps spreading while humans correlate metrics, logs and rollout history for hours.</p>
+<p><strong>Domain.</strong> Linux edge AI cameras managed from a cloud backend. Real OTA (Eclipse hawkBit), real telemetry (Prometheus, Loki, Grafana). Only the hardware and the payload are simulated; faults are real code misbehaving, never fabricated log lines.</p>
+<p><strong>Why an agent.</strong> The rollout-manager job is mechanical but wide: inventory versions, rehearse on throwaway devices, roll out in waves, read metrics and logs between waves, and decide promote, hold, halt or roll back. An agent can do the legwork and stop for a human before anything irreversible.</p>
+<p><strong>What we built.</strong></p>
+<div class="table-wrap"><table><thead><tr>
+<th>Part</th>
+<th>What</th>
+</tr></thead><tbody>
+<tr>
+<td>Environment</td>
+<td>hawkBit, Prometheus, Loki, Grafana, an isolated rehearsal lab, and a fleet of simulated devices (4 local, 20 on AWS) with releases v1.0 to v1.4</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td>TrueForge agent on Gemini plus a custom fleet MCP server (11 tools, evidence-gated, SQLite ledger)</td>
+</tr>
+<tr>
+<td>Guard rails</td>
+<td>Every action tool needs evidence of the right kind and freshness, refuses otherwise, and <code>start_wave</code>, <code>halt_rollout</code>, <code>rollback</code> need human approval</td>
+</tr>
+</tbody></table></div>
+<p><strong>Demo in three scenes.</strong> v1.3 is blocked in the lab before any field device is touched. v1.2 passes on rev A and fails on rev B in the lab, so the agent proposes a partial rollout (rev A only, rev B held with the evidence). v1.4 passes everywhere and rolls out in full waves. Script: <code>docs/agent-design.md</code> §20.</p>
+<hr></section>
+<section id="1-c4-l1-system-context" class="slide"><h2>1. C4 L1: System context</h2><div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    eng[&quot;Fleet engineer&lt;br/&gt;&lt;i&gt;person: approves start_wave, halt, rollback&lt;/i&gt;&quot;]
+    agent[&quot;Wavebreak agent&lt;br/&gt;&lt;i&gt;system: TrueForge agent plus fleet MCP server&lt;/i&gt;&quot;]
+    env[&quot;Wavebreak environment&lt;br/&gt;&lt;i&gt;system: hawkBit, Prometheus, Loki, Grafana, lab, device fleet&lt;/i&gt;&quot;]
+    llm[&quot;Google Gemini API&lt;br/&gt;&lt;i&gt;external: model&lt;/i&gt;&quot;]
+
+    eng -- &quot;chat, approve or deny&quot; --&gt; agent
+    agent -- &quot;prompts and tool calls&quot; --&gt; llm
+    agent -- &quot;Management API, PromQL, LogQL, lab API&quot; --&gt; env
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999,stroke:#6b6b6b,color:#fff
+    class eng person
+    class agent,env system
+    class llm external</pre></div>
+<ul>
+<li>The agent never touches devices directly. Field devices are reached only through hawkBit; lab devices only through the lab controller API.</li>
+<li>Devices only make outbound connections (DDI poll, remote_write, Loki push).</li>
+</ul>
+<hr></section>
+<section id="2-c4-l2-containers" class="slide"><h2>2. C4 L2: Containers</h2><div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart LR
+    eng[&quot;Fleet engineer&quot;]
+
+    subgraph agentz[&quot;Agent zone (host processes)&quot;]
+        tf[&quot;TrueForge&lt;br/&gt;&lt;i&gt;Node, agent harness, :8790&lt;/i&gt;&quot;]
+        fmcp[&quot;Fleet MCP server&lt;br/&gt;&lt;i&gt;Python FastMCP, :8792/mcp&lt;/i&gt;&quot;]
+        ledger[(&quot;Ledger&lt;br/&gt;&lt;i&gt;SQLite run/fleet-ledger.sqlite&lt;/i&gt;&quot;)]
+        drv[&quot;driver.py&lt;br/&gt;&lt;i&gt;HTTP plus SSE client&lt;/i&gt;&quot;]
+        sbx[&quot;Sandbox&lt;br/&gt;&lt;i&gt;bubblewrap, Code Mode only&lt;/i&gt;&quot;]
+    end
+
+    subgraph backend[&quot;Backend zone (Docker compose)&quot;]
+        hb[&quot;hawkBit&lt;br/&gt;&lt;i&gt;DDI plus Management API, :8080&lt;/i&gt;&quot;]
+        hbdb[(&quot;hawkBit DB&lt;br/&gt;&lt;i&gt;MySQL full, H2 file lite&lt;/i&gt;&quot;)]
+        hbui[&quot;hawkBit UI&lt;br/&gt;&lt;i&gt;optional, :8081&lt;/i&gt;&quot;]
+        prom[&quot;Prometheus&lt;br/&gt;&lt;i&gt;remote-write receiver, :9090&lt;/i&gt;&quot;]
+        loki[&quot;Loki&lt;br/&gt;&lt;i&gt;:3100&lt;/i&gt;&quot;]
+        graf[&quot;Grafana&lt;br/&gt;&lt;i&gt;:3000&lt;/i&gt;&quot;]
+        mcpg[&quot;mcp-grafana&lt;br/&gt;&lt;i&gt;read-only, :8000/mcp&lt;/i&gt;&quot;]
+    end
+
+    subgraph field[&quot;Field zone (network wavebreak_field)&quot;]
+        dev[&quot;edge-001 to edge-NNN&lt;br/&gt;&lt;i&gt;systemd containers, rev A or B&lt;/i&gt;&quot;]
+    end
+
+    subgraph lab[&quot;Lab zone (internal network wavebreak_lab)&quot;]
+        lc[&quot;Lab controller&lt;br/&gt;&lt;i&gt;FastAPI, :8090, Docker socket&lt;/i&gt;&quot;]
+        ld[&quot;lab-NNN&lt;br/&gt;&lt;i&gt;throwaway devices, no telemetry&lt;/i&gt;&quot;]
+    end
+
+    llm[&quot;Google Gemini API&quot;]
+
+    eng -- &quot;chat or driver&quot; --&gt; tf
+    drv -- &quot;sessions and turns&quot; --&gt; tf
+    tf -- &quot;LLM calls&quot; --&gt; llm
+    tf -- &quot;MCP tool calls&quot; --&gt; fmcp
+    tf -- &quot;MCP, read-only&quot; --&gt; mcpg
+    tf -. &quot;Code Mode&quot; .-&gt; sbx
+    fmcp --- ledger
+    fmcp -- &quot;Management API&quot; --&gt; hb
+    fmcp -- &quot;PromQL, LogQL&quot; --&gt; prom
+    fmcp -- &quot;LogQL&quot; --&gt; loki
+    fmcp -- &quot;lab API, bearer token&quot; --&gt; lc
+    hb --- hbdb
+    hbui -- &quot;Management API&quot; --&gt; hb
+    mcpg --&gt; graf
+    graf --&gt; prom
+    graf --&gt; loki
+    dev -- &quot;DDI poll, gateway token&quot; --&gt; hb
+    dev -- &quot;remote_write&quot; --&gt; prom
+    dev -- &quot;Loki push&quot; --&gt; loki
+    lc -- &quot;read-only artifact download&quot; --&gt; hb
+    lc -- &quot;install, status, node_exporter&quot; --&gt; ld</pre></div>
+<div class="table-wrap"><table><thead><tr>
+<th>Container</th>
+<th>Image or runtime</th>
+<th>Port</th>
+<th>Memory</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td>hawkbit</td>
+<td><code>hawkbit/hawkbit-update-server:1.1.0</code></td>
+<td>8080</td>
+<td>900m</td>
+<td>networks backend and field; lite: file-backed H2, full: MySQL</td>
+</tr>
+<tr>
+<td>hawkbit-db</td>
+<td><code>mysql:8.0</code></td>
+<td>none</td>
+<td>768m</td>
+<td>full profile only</td>
+</tr>
+<tr>
+<td>hawkbit-ui</td>
+<td><code>hawkbit/hawkbit-ui:1.1.0</code></td>
+<td>8081 to 8080</td>
+<td>640m</td>
+<td>full profile, or <code>HAWKBIT_UI=1</code> on lite</td>
+</tr>
+<tr>
+<td>prometheus</td>
+<td><code>prom/prometheus:v3.5.0</code></td>
+<td>9090</td>
+<td>384m</td>
+<td>retention 2d, remote-write receiver on</td>
+</tr>
+<tr>
+<td>loki</td>
+<td><code>grafana/loki:3.5.0</code></td>
+<td>3100</td>
+<td>384m</td>
+<td>retention 48h</td>
+</tr>
+<tr>
+<td>grafana</td>
+<td><code>grafana/grafana:12.1.0</code></td>
+<td>3000</td>
+<td>256m</td>
+<td>datasources <code>wb-prometheus</code>, <code>wb-loki</code>, dashboard <code>wavebreak-fleet</code></td>
+</tr>
+<tr>
+<td>mcp-grafana</td>
+<td><code>grafana/mcp-grafana:latest</code></td>
+<td>8000</td>
+<td>128m</td>
+<td><code>--disable-write</code>, streamable HTTP, Viewer token</td>
+</tr>
+<tr>
+<td>lab-controller</td>
+<td>built from <code>lab/controller</code></td>
+<td>8090</td>
+<td>128m</td>
+<td>only container with the Docker socket</td>
+</tr>
+<tr>
+<td>hawkbit-mcp</td>
+<td>hawkBit image JRE plus Maven jar</td>
+<td>8082 to 8081</td>
+<td>320m</td>
+<td>optional profile <code>mcp</code>; not installed, not used by the agent</td>
+</tr>
+<tr>
+<td>edge-NNN</td>
+<td><code>sim/device</code> image</td>
+<td>none</td>
+<td>256m Docker cap</td>
+<td>field devices; app MemoryMax 48M lite, 96M full</td>
+</tr>
+<tr>
+<td>TrueForge</td>
+<td><code>npx @truefoundry/trueforge</code></td>
+<td>8790</td>
+<td>shares host</td>
+<td><code>agent/spike/start_trueforge.sh</code></td>
+</tr>
+<tr>
+<td>Fleet MCP server</td>
+<td><code>.venv/bin/python -m agent.fleet_mcp</code></td>
+<td>8792</td>
+<td>shares host</td>
+<td><code>agent/start_fleet_mcp.sh</code>, host process, no auth</td>
+</tr>
+</tbody></table></div>
+<hr></section>
+<section id="3-c4-l3-components" class="slide"><h2>3. C4 L3: Components</h2><h3 id="3-1-simulated-device">3.1 Simulated device</h3>
+<p>One image (<code>sim/device/Dockerfile</code>, Debian bookworm slim, systemd PID 1). Container runtime only; Firecracker is not implemented (see <a href="#12-drift-report">12. Drift report</a>).</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    subgraph dev[&quot;Device (systemd PID 1)&quot;]
+        ident[&quot;wavebreak-identity&lt;br/&gt;&lt;i&gt;identity.sh: env or kernel args to identity.env, device.env, labels.env&lt;/i&gt;&quot;]
+        boot[&quot;wavebreak-boot-record&lt;br/&gt;&lt;i&gt;oneshot, ExecStop writes clean marker&lt;/i&gt;&quot;]
+        app[&quot;inference-app.service&lt;br/&gt;&lt;i&gt;MemoryMax, Restart=always&lt;/i&gt;&quot;]
+        rst[&quot;wavebreak-restarts.timer&lt;br/&gt;&lt;i&gt;NRestarts to textfile every 5s&lt;/i&gt;&quot;]
+        ne[&quot;node_exporter :9100&lt;br/&gt;&lt;i&gt;textfile collector&lt;/i&gt;&quot;]
+        fb[&quot;Fluent Bit&lt;br/&gt;&lt;i&gt;metrics scrape, journald, boot.log&lt;/i&gt;&quot;]
+        ota[&quot;ota-agent.service&lt;br/&gt;&lt;i&gt;ddi (field) or serve (lab)&lt;/i&gt;&quot;]
+        slots[&quot;/opt/app/slot_a, slot_b&lt;br/&gt;current symlink&quot;]
+    end
+
+    ident --&gt; boot &amp; app &amp; ota &amp; fb
+    app -- &quot;inference_app.prom every 5s&quot; --&gt; ne
+    rst -- &quot;restarts.prom&quot; --&gt; ne
+    fb -- &quot;scrape 5s&quot; --&gt; ne
+    ota -- &quot;install to inactive slot, flip&quot; --&gt; slots
+    app -- &quot;runs from current&quot; --&gt; slots
+    ota -- &quot;rewrite labels.env, restart&quot; --&gt; fb</pre></div>
+<div class="table-wrap"><table><thead><tr>
+<th>Item</th>
+<th>Value</th>
+</tr></thead><tbody>
+<tr>
+<td>Identity</td>
+<td><code>DEVICE_ID</code>, <code>HW_REV</code> (A or B), <code>REGION</code>. Container: environment of PID 1. Runs on every boot</td>
+</tr>
+<tr>
+<td>Files</td>
+<td><code>/etc/wavebreak/identity.env</code> (3 keys), <code>device.env</code> (rest, mode 600), <code>labels.env</code> (device_id, hw_rev, region, fw_version; rewritten by ota-agent after install)</td>
+</tr>
+<tr>
+<td>MemoryMax</td>
+<td>from <code>APP_MEMORY_MAX</code> (lite 48M, full 96M) via <code>systemctl set-property --runtime</code>; also a Docker cap of 256m on the container</td>
+</tr>
+<tr>
+<td>inference-app unit</td>
+<td><code>Restart=always</code>, <code>RestartSec=2</code>, <code>StartLimitIntervalSec=0</code>, <code>MemorySwapMax=0</code>, <code>OOMPolicy=stop</code></td>
+</tr>
+<tr>
+<td>Telemetry</td>
+<td><code>TELEMETRY=1</code> on field devices; Fluent Bit only starts when <code>/run/wavebreak/telemetry</code> exists</td>
+</tr>
+<tr>
+<td>boot-record</td>
+<td>appends <code>{&quot;event&quot;:&quot;boot&quot;,&quot;boot_id&quot;,&quot;ts&quot;,&quot;fw_version&quot;,&quot;previous_shutdown&quot;:&quot;clean or unclean or first_boot&quot;,&quot;device_id&quot;,&quot;hw_rev&quot;,&quot;region&quot;}</code> to <code>/var/log/wavebreak/boot.log</code></td>
+</tr>
+<tr>
+<td>kmsg</td>
+<td>Firecracker only; never emitted today</td>
+</tr>
+</tbody></table></div>
+<h3 id="3-2-ota-agent">3.2 ota-agent</h3>
+<p>Python stdlib only (<code>sim/ota-agent</code>), one install core with two front ends.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    subgraph ota[&quot;ota-agent&quot;]
+        ddi[&quot;ddi mode&lt;br/&gt;&lt;i&gt;poll, configData, deploymentBase, feedback, cancelAction&lt;/i&gt;&quot;]
+        local[&quot;serve mode&lt;br/&gt;&lt;i&gt;POST /install, GET /status, bearer token :8081&lt;/i&gt;&quot;]
+        core[&quot;Install core&lt;br/&gt;&lt;i&gt;sha256, safe_extract, manifest check, flock&lt;/i&gt;&quot;]
+    end
+    ddi -- &quot;artifact and sha256&quot; --&gt; core
+    local -- &quot;uploaded tar&quot; --&gt; core
+    core --&gt; s1[&quot;extract to inactive slot&quot;] --&gt; s2[&quot;atomic flip of current&quot;] --&gt; s3[&quot;systemctl restart inference-app&quot;] --&gt; s4{&quot;health window 15s plus up to 10s grace&quot;}
+    s4 -- &quot;ok&quot; --&gt; s5[&quot;write labels.env, restart Fluent Bit, report success&quot;]
+    s4 -- &quot;fail&quot; --&gt; s6[&quot;flip back, restart, report failure&quot;]</pre></div>
+<ul>
+<li>Health check passes only when the window elapsed, the unit is active, NRestarts is unchanged and at least 2 samples with the new <code>fw_version</code> show <code>frames_total</code> advancing.</li>
+<li>DDI: registers configData (mode merge), verifies sha256, feedback proceeding then closed success or failure. Assigned equals installed: reports success without reinstalling. Cancel actions are always accepted. Backoff (5 s to 300 s, jitter) applies only after errors; normal cadence is the server&#x27;s polling sleep.</li>
+<li>The window is short on purpose: v1.3 fails after it closes (see <a href="#7-fault-catalogue">7</a>).</li>
+<li>Auth: DDI gateway token (D14); local API bearer <code>LAB_DEVICE_TOKEN</code>.</li>
+</ul>
+<h3 id="3-3-lab-controller">3.3 Lab controller</h3>
+<p><code>lab/controller/app.py</code> (FastAPI, uvicorn :8090). The agent side gets only this API: no Docker socket, no root.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    subgraph lc[&quot;Lab controller&quot;]
+        api[&quot;REST API&lt;br/&gt;&lt;i&gt;bearer LAB_API_TOKEN&lt;/i&gt;&quot;]
+        dock[&quot;Docker SDK&lt;br/&gt;&lt;i&gt;create, inspect, remove lab-NNN&lt;/i&gt;&quot;]
+        fetch[&quot;Bundle fetch&lt;br/&gt;&lt;i&gt;hawkBit Management API, lab user, sha256&lt;/i&gt;&quot;]
+        sum[&quot;Summary reader&lt;br/&gt;&lt;i&gt;ota-agent /status, node_exporter, cgroup memory.events&lt;/i&gt;&quot;]
+    end
+    api --&gt; dock &amp; fetch &amp; sum
+    dock -- &quot;docker.sock&quot; --&gt; ld[&quot;lab-NNN container&lt;br/&gt;&lt;i&gt;OTA_MODE=local, TELEMETRY=0, 256m&lt;/i&gt;&quot;]
+    fetch -- &quot;read-only&quot; --&gt; hb[&quot;hawkBit&quot;]
+    sum -- &quot;http lab-NNN:8081, :9100&quot; --&gt; ld</pre></div>
+<ul>
+<li>Lab devices sit only on the internal network <code>wavebreak_lab</code>; the controller is on <code>backend</code> and <code>lab</code>. Devices get no hawkBit tokens and run no Fluent Bit.</li>
+<li>Limits: hw_rev A or B, version matches <code>v1.[0-4]</code>, count 1 to 4 per request, 45 s to become ready (504 otherwise).</li>
+<li><code>memory_trend</code> holds one sample per summary call (deque of 60, in memory), so the caller must poll.</li>
+<li>Hardened by the <code>lab</code> hawkBit user with six READ authorities (D27).</li>
+</ul>
+<h3 id="3-4-fleet-mcp-server">3.4 Fleet MCP server</h3>
+<p><code>agent/fleet_mcp/</code>, FastMCP streamable HTTP on <code>127.0.0.1:8792/mcp</code>, 11 tools. Design and rules: <code>docs/agent-design.md</code> §10 to §12.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    subgraph fm[&quot;Fleet MCP server&quot;]
+        srv[&quot;server.py&lt;br/&gt;&lt;i&gt;11 tools, annotations, refusal codes to ToolError&lt;/i&gt;&quot;]
+        fleet[&quot;fleet.py&lt;br/&gt;&lt;i&gt;service layer: plan, rehearse, waves, observe, actions&lt;/i&gt;&quot;]
+        pre[&quot;preconditions.py&lt;br/&gt;&lt;i&gt;phase, evidence kind, freshness, wave order, hold&lt;/i&gt;&quot;]
+        ass[&quot;assess.py&lt;br/&gt;&lt;i&gt;verdict rules, thresholds&lt;/i&gt;&quot;]
+        plan[&quot;planner.py&lt;br/&gt;&lt;i&gt;stratified waves&lt;/i&gt;&quot;]
+        led[&quot;ledger.py&lt;br/&gt;&lt;i&gt;SQLite rollouts and events&lt;/i&gt;&quot;]
+        bk[&quot;backends.py&lt;br/&gt;&lt;i&gt;HawkbitBackend, PromBackend, HttpLab&lt;/i&gt;&quot;]
+        diff[&quot;bundle_diff.py&lt;br/&gt;&lt;i&gt;sim/bundles diff&lt;/i&gt;&quot;]
+        mock[&quot;mock_lab.py&lt;br/&gt;&lt;i&gt;FLEET_LAB_MOCK=1 for tests&lt;/i&gt;&quot;]
+    end
+    srv --&gt; fleet
+    fleet --&gt; pre &amp; ass &amp; plan &amp; led &amp; bk &amp; diff
+    bk -- &quot;wavebreak_clients.hawkbit&quot; --&gt; hb[&quot;hawkBit&quot;]
+    bk -- &quot;query_range, LogQL&quot; --&gt; po[&quot;Prometheus, Loki&quot;]
+    bk -- &quot;HttpLab&quot; --&gt; lc[&quot;Lab controller&quot;]
+    bk -. &quot;tests&quot; .-&gt; mock</pre></div>
+<div class="table-wrap"><table><thead><tr>
+<th>Tool</th>
+<th>Approval</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>get_fleet_inventory</code>, <code>get_rollout_state</code>, <code>get_bundle_diff</code></td>
+<td>no</td>
+<td>read</td>
+</tr>
+<tr>
+<td><code>plan_rollout</code> (<code>version</code>, <code>waves</code>, <code>stratify_by</code>, <code>exclude_hw_revs</code>, <code>exclusion_evidence_id</code>)</td>
+<td>no</td>
+<td>plan, or partial plan holding failed hw_revs</td>
+</tr>
+<tr>
+<td><code>rehearse</code>, <code>record_decision</code></td>
+<td>no</td>
+<td>lab evidence, audit note</td>
+</tr>
+<tr>
+<td><code>observe_wave</code>, <code>verify_recovery</code></td>
+<td>no</td>
+<td>evidence (read-only annotation, write the ledger)</td>
+</tr>
+<tr>
+<td><code>start_wave</code>, <code>halt_rollout</code>, <code>rollback</code></td>
+<td><strong>yes</strong></td>
+<td>destructive, named in <code>require_approval_for_tools</code></td>
+</tr>
+</tbody></table></div>
+<h3 id="3-5-trueforge-agent">3.5 TrueForge agent</h3>
+<p>Registered by <code>agent/register.py</code>; manifest in <code>agent/wavebreak-agent.json</code>; playbook in <code>agent/instructions.md</code>.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">flowchart TB
+    subgraph tfa[&quot;TrueForge agent wavebreak&quot;]
+        model[&quot;Model&lt;br/&gt;&lt;i&gt;google-gemini/gemini-3-6-flash, temp 0.1, reasoning medium&lt;/i&gt;&quot;]
+        instr[&quot;Instructions&lt;br/&gt;&lt;i&gt;workflow, evidence rules, partial rollout&lt;/i&gt;&quot;]
+        harness[&quot;Harness&lt;br/&gt;&lt;i&gt;approval gate, sessions, SSE, compaction&lt;/i&gt;&quot;]
+        cm[&quot;Code Mode and sandbox&lt;br/&gt;&lt;i&gt;statistics only, cannot call gated tools&lt;/i&gt;&quot;]
+        ui[&quot;Generative UI, ask_user_questions, dynamic sub-agents&quot;]
+    end
+    harness -- &quot;preloaded, enable all&quot; --&gt; fmcp[&quot;wavebreak-fleet&quot;]
+    harness -- &quot;deferred, 7 read-only tools&quot; --&gt; mg[&quot;grafana&quot;]
+    harness -- &quot;pauses gated tool calls&quot; --&gt; eng[&quot;Engineer or driver.py&quot;]</pre></div>
+<ul>
+<li>Approval is enforced by the harness through <code>require_approval_for_tools = [start_wave, halt_rollout, rollback]</code>; the server records <code>approved_via: harness</code> (see drift C5).</li>
+<li><code>iteration_limit</code> 300; compaction and large tool responses enabled.</li>
+</ul>
+<hr></section>
+<section id="4-key-flows" class="slide"><h2>4. Key flows</h2><h3 id="4-1-release-publish">4.1 Release publish</h3>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant Dev as Operator
+    participant B as build-bundles.sh
+    participant P as publish-bundles.sh
+    participant HB as hawkBit
+
+    Dev-&gt;&gt;B: make bundles
+    B-&gt;&gt;B: tar sim/bundles/vX.Y deterministic, write sha256
+    Dev-&gt;&gt;P: make publish
+    P-&gt;&gt;HB: GET softwaremoduletypes, distributionsettypes (keys application, app)
+    P-&gt;&gt;HB: POST softwaremodules (name wavebreak-app, version vX.Y)
+    P-&gt;&gt;HB: POST softwaremodules/id/artifacts (multipart tar)
+    P-&gt;&gt;HB: POST distributionsets (module attached)
+    Note over P,HB: idempotent, re-run restores releases after a volume loss</pre></div>
+<h3 id="4-2-healthy-ota-update-with-a-b-install">4.2 Healthy OTA update with A/B install</h3>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant Op as Operator or Agent
+    participant HB as hawkBit
+    participant D as ota-agent
+    participant App as inference-app
+    participant FB as Fluent Bit
+
+    Op-&gt;&gt;HB: rollout or assignment of DS v1.1
+    loop server polling sleep
+        D-&gt;&gt;HB: GET controller/v1/id
+    end
+    HB--&gt;&gt;D: deploymentBase link
+    D-&gt;&gt;HB: GET deploymentBase, feedback proceeding
+    D-&gt;&gt;HB: download artifact from the link
+    D-&gt;&gt;D: verify sha256, extract to inactive slot, flip current
+    D-&gt;&gt;App: systemctl restart
+    D-&gt;&gt;D: health window, unit active, restarts unchanged, frames advancing
+    D-&gt;&gt;FB: rewrite labels.env (fw_version), restart
+    D-&gt;&gt;HB: feedback closed success</pre></div>
+<h3 id="4-3-rehearsal">4.3 Rehearsal</h3>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant F as Fleet MCP rehearse
+    participant LC as Lab controller
+    participant HB as hawkBit read-only
+    participant LD as Lab device
+
+    loop per hw_rev, batches of FLEET_LAB_PARALLEL
+        F-&gt;&gt;LC: POST /lab/devices count 1, hw_rev, version from_version
+        LC-&gt;&gt;LD: boot, install from_version
+        F-&gt;&gt;LC: POST /lab/devices/id/install version
+        LC-&gt;&gt;HB: download artifact, verify sha256
+        LC-&gt;&gt;LD: POST /install
+        LD--&gt;&gt;LC: install result
+        loop every poll interval for the window
+            F-&gt;&gt;LC: GET /lab/devices/id/summary
+            LC--&gt;&gt;F: memory trend, restarts, oom, unit state
+        end
+        F-&gt;&gt;LC: DELETE /lab/devices/id
+    end
+    F-&gt;&gt;F: assess per hw_rev, write rehearsal evidence, phase REHEARSED or BLOCKED</pre></div>
+<ul>
+<li>Rehearsal fails on install failure, unit not active, restarts &gt;= 1, OOM &gt; 0, or memory slope above 1.0 MB/min. Lab devices are destroyed in a <code>finally</code>.</li>
+</ul>
+<h3 id="4-4-evidence-gated-action-with-approval">4.4 Evidence-gated action with approval</h3>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant A as Agent (Gemini)
+    participant H as TrueForge harness
+    participant E as Engineer
+    participant S as Fleet MCP server
+    participant L as Ledger
+    participant HB as hawkBit
+
+    A-&gt;&gt;H: tool call start_wave(plan, wave, evidence_id)
+    H--&gt;&gt;E: tool.approval_required, evidence card in chat
+    E--&gt;&gt;H: allow or deny
+    alt denied
+        H--&gt;&gt;A: denied, agent reports and asks
+    else allowed
+        H-&gt;&gt;S: start_wave
+        S-&gt;&gt;L: read plan, latest evidence
+        S-&gt;&gt;S: phase, evidence kind, verdict, freshness, wave order
+        alt refused
+            S-&gt;&gt;L: error event with code
+            S--&gt;&gt;A: ToolError CODE
+        else ok
+            S-&gt;&gt;L: approval event (approved_via harness)
+            S-&gt;&gt;HB: create rollout for the wave (1 group), poll ready, start
+            S-&gt;&gt;L: action wave_started, phase WAVE_RUNNING
+            S--&gt;&gt;A: rollout id, targets
+        end
+    end</pre></div>
+<h3 id="4-5-scene-1-v1-3-blocked">4.5 Scene 1: v1.3 blocked</h3>
+<p>Prompt: &quot;v1.3 is published. Take care of the rollout.&quot; Verified end to end through TrueForge on 2026-09-26 (dry run, then re-run as a regression check after Scenes 3 and 2).</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant Eng as Engineer
+    participant A as Agent
+    participant S as Fleet MCP
+    participant LC as Lab controller
+
+    Eng-&gt;&gt;A: v1.3 is published
+    A-&gt;&gt;S: get_rollout_state, get_fleet_inventory
+    A-&gt;&gt;S: plan_rollout v1.3 (wave 1 = edge-002 A, edge-003 B)
+    A-&gt;&gt;S: rehearse
+    S-&gt;&gt;LC: lab devices rev A then rev B, install v1.3
+    LC--&gt;&gt;S: restarts on both (first config reload raises KeyError)
+    S--&gt;&gt;A: verdict fail, per hw_rev fail, phase BLOCKED
+    A-&gt;&gt;S: get_bundle_diff v1.1 to v1.3
+    A-&gt;&gt;S: record_decision (evidence id)
+    A--&gt;&gt;Eng: report, no field device touched, no approval asked</pre></div>
+<h3 id="4-6-scene-2-v1-2-partial-rollout">4.6 Scene 2: v1.2 partial rollout</h3>
+<p>Prompt: &quot;v1.2 is published. Take care of the rollout.&quot; Rehearsal passes rev A and fails rev B (11 MB/min slope within 90 s). Verified end to end through TrueForge on 2026-09-26 (driver with auto-approve, both approvals logged; run on the lite model because the demo model&#x27;s free daily quota was exhausted). Result: rev A on v1.2 and healthy, rev B on v1.1, ledger <code>hold</code> event referencing the failed rehearsal.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant Eng as Engineer
+    participant A as Agent
+    participant S as Fleet MCP
+    participant HB as hawkBit
+
+    A-&gt;&gt;S: plan_rollout v1.2, rehearse all hw_revs
+    S--&gt;&gt;A: A pass, B fail (memory slope), overall fail, plan BLOCKED, evidence ev-1
+    A-&gt;&gt;S: plan_rollout v1.2 waves [1, rest], exclude_hw_revs [B], exclusion_evidence_id ev-1
+    S--&gt;&gt;A: new plan, rev A only, held B (edge-001, edge-003), hold event in ledger
+    A-&gt;&gt;S: rehearse (rev A only)
+    S--&gt;&gt;A: pass, evidence ev-2, REHEARSED
+    A-&gt;&gt;S: record_decision (hold B, evidence ev-1)
+    A--&gt;&gt;Eng: evidence card: proceed with rev A, hold rev B, reason and numbers
+    A-&gt;&gt;S: start_wave 1 (ev-2)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: rollout wave 1 (one rev A device)
+    A-&gt;&gt;S: observe_wave 1
+    S--&gt;&gt;A: healthy (ev-3)
+    A-&gt;&gt;S: start_wave 2 (ev-3)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: rollout wave 2 (remaining rev A device)
+    A-&gt;&gt;S: observe_wave 2
+    S--&gt;&gt;A: healthy, phase COMPLETE
+    A--&gt;&gt;Eng: final report: rev A on v1.2, rev B held on v1.1 pending a fix, ev-1 as evidence</pre></div>
+<h3 id="4-7-scene-3-v1-4-full-rollout">4.7 Scene 3: v1.4 full rollout</h3>
+<p>Prompt: &quot;v1.4 is published. Take care of the rollout.&quot; Verified end to end through TrueForge on 2026-09-26 (auto-approve driver, approvals logged).</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant Eng as Engineer
+    participant A as Agent
+    participant S as Fleet MCP
+    participant HB as hawkBit
+
+    A-&gt;&gt;S: plan_rollout v1.4 (wave 1 = edge-002 A + edge-003 B, wave 2 = edge-004 A + edge-001 B)
+    A-&gt;&gt;S: rehearse, both hw_revs pass (ev-1)
+    A-&gt;&gt;S: start_wave 1 (ev-1)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: rollout plan-wave1, 2 targets, start
+    A-&gt;&gt;S: observe_wave 1, healthy (ev-2)
+    A-&gt;&gt;S: start_wave 2 (ev-2)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: rollout plan-wave2, 2 targets, start
+    A-&gt;&gt;S: observe_wave 2, healthy (ev-3), phase COMPLETE
+    A-&gt;&gt;S: record_decision for each step
+    A--&gt;&gt;Eng: report, 4 of 4 devices on v1.4</pre></div>
+<h3 id="4-8-rollback">4.8 Rollback</h3>
+<p>Regression path when a wave passes the lab but fails in the field. Unit-tested against the mock backends; not part of the three scenes and not yet run on the real fleet.</p>
+<div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">sequenceDiagram
+    participant A as Agent
+    participant Eng as Engineer
+    participant S as Fleet MCP
+    participant HB as hawkBit
+    participant P as Prometheus and Loki
+
+    A-&gt;&gt;S: observe_wave n
+    S-&gt;&gt;P: query_range memory, restarts, fps, OOM log count
+    S--&gt;&gt;A: regression on hw_rev B (ev-r), affected_hw_revs B
+    A-&gt;&gt;S: get_bundle_diff from to
+    A-&gt;&gt;Eng: evidence card, cause hypothesis
+    A-&gt;&gt;S: halt_rollout (ev-r)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: stop unfinished rollouts, phase HALTED
+    A-&gt;&gt;S: rollback cohort hw_rev B, to_version from_version (ev-r)
+    Eng--&gt;&gt;A: approve
+    S-&gt;&gt;HB: assign from_version (forced) to each affected device, phase ROLLED_BACK
+    A-&gt;&gt;S: verify_recovery
+    S--&gt;&gt;A: recovered per device, phase VERIFIED</pre></div>
+<hr></section>
+<section id="5-interfaces" class="slide"><h2>5. Interfaces</h2><h3 id="5-1-master-table">5.1 Master table</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Interface</th>
+<th>Port and path</th>
+<th>Protocol</th>
+<th>Caller to callee</th>
+<th>Auth</th>
+</tr></thead><tbody>
+<tr>
+<td>hawkBit DDI</td>
+<td>8080 <code>/{tenant}/controller/v1/...</code></td>
+<td>HTTP REST</td>
+<td>device to hawkBit</td>
+<td>gateway token</td>
+</tr>
+<tr>
+<td>hawkBit Management API</td>
+<td>8080 <code>/rest/v1/...</code></td>
+<td>HTTP REST</td>
+<td>fleet MCP, scripts, lab controller to hawkBit</td>
+<td>basic (admin, or <code>lab</code> user read-only)</td>
+</tr>
+<tr>
+<td>hawkBit UI</td>
+<td>8081</td>
+<td>HTTP</td>
+<td>operator</td>
+<td>hawkBit user</td>
+</tr>
+<tr>
+<td>Prometheus write</td>
+<td>9090 <code>/api/v1/write</code></td>
+<td>remote_write</td>
+<td>device to Prometheus</td>
+<td>none (private)</td>
+</tr>
+<tr>
+<td>Prometheus query</td>
+<td>9090 <code>/api/v1/query</code>, <code>/query_range</code></td>
+<td>HTTP</td>
+<td>fleet MCP, Grafana</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Loki push</td>
+<td>3100 <code>/loki/api/v1/push</code></td>
+<td>HTTP</td>
+<td>device to Loki</td>
+<td>none (private)</td>
+</tr>
+<tr>
+<td>Loki query</td>
+<td>3100 <code>/loki/api/v1/query</code>, <code>/query_range</code></td>
+<td>HTTP</td>
+<td>fleet MCP, Grafana</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Grafana</td>
+<td>3000, proxy <code>/api/datasources/proxy/uid/...</code></td>
+<td>HTTP</td>
+<td>operator, mcp-grafana</td>
+<td>admin login, Viewer token</td>
+</tr>
+<tr>
+<td>mcp-grafana</td>
+<td>8000 <code>/mcp</code></td>
+<td>MCP streamable HTTP</td>
+<td>TrueForge to mcp-grafana</td>
+<td>none inside the security group</td>
+</tr>
+<tr>
+<td>Lab controller</td>
+<td>8090 <code>/lab/devices...</code>, <code>/healthz</code></td>
+<td>HTTP REST</td>
+<td>fleet MCP to lab controller</td>
+<td>bearer <code>LAB_API_TOKEN</code></td>
+</tr>
+<tr>
+<td>ota-agent local API</td>
+<td>8081 <code>/install</code>, <code>/status</code> (in each lab device)</td>
+<td>HTTP</td>
+<td>lab controller to lab device</td>
+<td>bearer <code>LAB_DEVICE_TOKEN</code></td>
+</tr>
+<tr>
+<td>node_exporter</td>
+<td>9100 <code>/metrics</code> (device local)</td>
+<td>HTTP</td>
+<td>Fluent Bit, lab controller</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Fleet MCP</td>
+<td>8792 <code>/mcp</code></td>
+<td>MCP streamable HTTP</td>
+<td>TrueForge to fleet MCP</td>
+<td>none (127.0.0.1 only)</td>
+</tr>
+<tr>
+<td>TrueForge API</td>
+<td>8790 <code>/api/v1/...</code></td>
+<td>HTTP plus SSE</td>
+<td>driver, register, UI</td>
+<td>none (127.0.0.1)</td>
+</tr>
+<tr>
+<td>hawkBit MCP</td>
+<td>8082 <code>/mcp</code></td>
+<td>MCP</td>
+<td>optional, unused</td>
+<td>Basic pass-through</td>
+</tr>
+</tbody></table></div>
+<h3 id="5-2-hawkbit-ddi-api-device-facing">5.2 hawkBit DDI API (device-facing)</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/{tenant}/controller/v1/{id}</code></td>
+<td>GET</td>
+<td>poll, links and polling sleep</td>
+</tr>
+<tr>
+<td><code>.../{id}/configData</code></td>
+<td>PUT</td>
+<td>attributes, body <code>{mode: merge, data: {device_id, hw_rev, region, fw_version}}</code></td>
+</tr>
+<tr>
+<td><code>.../{id}/deploymentBase/{actionId}</code></td>
+<td>GET</td>
+<td>deployment, chunks, artifact links (the link is used for download)</td>
+</tr>
+<tr>
+<td><code>.../{id}/deploymentBase/{actionId}/feedback</code></td>
+<td>POST</td>
+<td>proceeding, closed success or failure</td>
+</tr>
+<tr>
+<td><code>.../{id}/cancelAction/{actionId}/feedback</code></td>
+<td>POST</td>
+<td>accept cancel</td>
+</tr>
+</tbody></table></div>
+<p>Auth header <code>Authorization: GatewayToken &lt;token&gt;</code> (or <code>TargetToken</code>, see drift C-E8). Tenant <code>DEFAULT</code>; tenant config <code>pollingTime</code> set by <code>scripts/hawkbit-config.sh</code> (10 s locally, minimum 5 s via <code>hawkbit.controller.minPollingTime</code>).</p>
+<h3 id="5-3-hawkbit-management-api-calls-actually-made">5.3 hawkBit Management API calls actually made</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Caller</th>
+<th>Calls</th>
+</tr></thead><tbody>
+<tr>
+<td><code>wavebreak_clients/hawkbit.py</code></td>
+<td>GET <code>targets</code>, <code>targets/{id}</code>, <code>/attributes</code>, <code>/installedDS</code>, <code>/actions</code>, <code>/actions/{id}</code>; GET <code>distributionsets</code> (q name and version); POST <code>distributionsets/{id}/assignedTargets</code> (forced); POST <code>rollouts</code>; POST <code>rollouts/{id}/start</code>, <code>/pause</code>, <code>/resume</code>, <code>/stop</code>; GET <code>rollouts/{id}</code>, <code>/deploygroups</code>; GET <code>softwaremodules/{m}/artifacts/{a}/download</code></td>
+</tr>
+<tr>
+<td><code>create_wave</code> body</td>
+<td><code>amountGroups: 1</code>, <code>dynamic: false</code>, forced, weight 400, success THRESHOLD 100 then NEXTGROUP, error THRESHOLD 1 then PAUSE, <code>targetFilterQuery: controllerId=in=(a,b)</code> (verified live 2026-09-26)</td>
+</tr>
+<tr>
+<td><code>scripts/publish-bundles.sh</code></td>
+<td>GET <code>softwaremoduletypes</code>, <code>distributionsettypes</code>; GET, POST <code>softwaremodules</code> (type key <code>application</code>); POST <code>softwaremodules/{id}/artifacts</code>; GET, POST <code>distributionsets</code> (type key <code>app</code>)</td>
+</tr>
+<tr>
+<td><code>scripts/seed.sh</code></td>
+<td>GET <code>targets?q=controllerId==edge-*</code>; POST <code>distributionsets/{id}/assignedTargets</code>; GET <code>installedDS</code></td>
+</tr>
+<tr>
+<td><code>scripts/demo-reset.sh</code></td>
+<td>GET <code>rollouts</code>; POST <code>rollouts/{id}/stop</code>; GET <code>targets/{t}/actions</code>; DELETE <code>targets/{t}/actions/{a}</code></td>
+</tr>
+<tr>
+<td><code>scripts/hawkbit-config.sh</code></td>
+<td>PUT <code>system/configs/{key}</code>: <code>authentication.gatewaytoken.enabled</code>, <code>.key</code>, <code>authentication.targettoken.enabled</code>, <code>pollingTime</code></td>
+</tr>
+<tr>
+<td>lab controller (user <code>lab</code>)</td>
+<td>GET <code>softwaremodules?q=name==wavebreak-app;version==X</code>, <code>softwaremodules/{id}/artifacts</code>, artifact download, sha256 check</td>
+</tr>
+<tr>
+<td><code>HawkbitBackend</code></td>
+<td><code>start_wave</code>: create rollout, poll <code>GET rollouts/{id}</code> up to 60 s until <code>ready</code>, then start (fails closed). <code>halt</code>: stop rollouts not finished. <code>rollback</code>: assign <code>from_version</code> forced per device</td>
+</tr>
+</tbody></table></div>
+<p>hawkBit facts: image <code>hawkbit/hawkbit-update-server:1.1.0</code> (monolith), OpenAPI at <code>/v3/api-docs</code>, heap via <code>X_MS</code>, <code>X_MX</code>, metaspace env (compose sets 128m and 512m), users via <code>-Dhawkbit.security.user.&lt;name&gt;.{tenant,password,roles,permissions}</code> with <code>{noop}</code> passwords. Software module <code>type</code> in POST bodies is the type KEY.</p>
+<p>Canary waves are separate hawkBit rollouts: <code>create_wave</code> makes a one-group rollout left unstarted; <code>start_rollout</code> is a separate call after approval. Success in one wave cannot start the next (A8). Verified live: Scene 3 produced rollouts <code>plan-...-wave1</code> and <code>plan-...-wave2</code>, 2 targets each.</p>
+<p>hawkBit MCP server (optional, T2.2): Maven Central jar <code>org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0</code>, run on the hawkBit image JRE, <code>server.port=8081</code>, streamable HTTP, <code>hawkbit.mcp.mgmt-url</code>. The agent does not use it (A3, A4).</p>
+<h3 id="5-4-ota-agent-local-api-lab-devices-only">5.4 ota-agent local API (lab devices only)</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/install</code></td>
+<td>POST</td>
+<td>raw tar body (max 64 MiB), optional <code>X-Sha256</code>; 200 ok, 422 install failed, 400 bad length</td>
+</tr>
+<tr>
+<td><code>/status</code></td>
+<td>GET</td>
+<td><code>fw_version</code>, <code>slot</code>, <code>unit_state</code>, <code>restarts</code>, <code>last_install</code></td>
+</tr>
+</tbody></table></div>
+<p>Auth: <code>Authorization: Bearer &lt;LAB_DEVICE_TOKEN&gt;</code>; the server refuses to start without a token. Port <code>LOCAL_API_PORT</code> (8081).</p>
+<h3 id="5-5-lab-controller-api-agent-facing">5.5 Lab controller API (agent-facing)</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/lab/devices</code></td>
+<td>POST</td>
+<td><code>{count 1 to 4, hw_rev A or B, version}</code>: boot lab devices, install the bundle (unless v1.0); returns ids</td>
+</tr>
+<tr>
+<td><code>/lab/devices</code></td>
+<td>GET</td>
+<td>list</td>
+</tr>
+<tr>
+<td><code>/lab/devices/{id}/install</code></td>
+<td>POST</td>
+<td><code>{version}</code>: fetch from hawkBit read-only, upload to device</td>
+</tr>
+<tr>
+<td><code>/lab/devices/{id}/summary</code></td>
+<td>GET</td>
+<td><code>hw_rev</code>, <code>fw_version</code>, <code>memory_trend [{ts, memory_bytes}]</code>, <code>memory_bytes</code>, <code>restarts</code>, <code>oom_kills</code>, <code>unit_state</code>, <code>last_install_result</code>, <code>container_state</code></td>
+</tr>
+<tr>
+<td><code>/lab/devices/{id}</code></td>
+<td>DELETE</td>
+<td>destroy</td>
+</tr>
+<tr>
+<td><code>/healthz</code></td>
+<td>GET</td>
+<td>health, no auth</td>
+</tr>
+</tbody></table></div>
+<p>Auth <code>Authorization: Bearer &lt;LAB_API_TOKEN&gt;</code> (401 bad token, 503 if unset). A device 422 (install failure) surfaces as 502 from the controller (drift C-E3).</p>
+<h3 id="5-6-fleet-mcp-tools">5.6 Fleet MCP tools</h3>
+<p>Argument-level specs, preconditions, refusal codes: <code>docs/agent-design.md</code> §10 and §10.1. Summary of signatures:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Tool</th>
+<th>Arguments</th>
+</tr></thead><tbody>
+<tr>
+<td><code>get_fleet_inventory</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>get_rollout_state</code></td>
+<td><code>plan_id?</code></td>
+</tr>
+<tr>
+<td><code>plan_rollout</code></td>
+<td><code>version</code>, <code>waves?</code> (default 2, 5, &quot;rest&quot;), <code>stratify_by?</code> (hw_rev, region, version), <code>exclude_hw_revs?</code>, <code>exclusion_evidence_id?</code></td>
+</tr>
+<tr>
+<td><code>rehearse</code></td>
+<td><code>plan_id</code>, <code>hw_revs?</code>, <code>minutes?</code> (default 2, max 5)</td>
+</tr>
+<tr>
+<td><code>get_bundle_diff</code></td>
+<td><code>from_version</code>, <code>to_version</code></td>
+</tr>
+<tr>
+<td><code>start_wave</code></td>
+<td><code>plan_id</code>, <code>wave</code>, <code>evidence_id</code></td>
+</tr>
+<tr>
+<td><code>observe_wave</code></td>
+<td><code>plan_id</code>, <code>wave</code>, <code>minutes?</code> (default 2, max 4)</td>
+</tr>
+<tr>
+<td><code>record_decision</code></td>
+<td><code>plan_id</code>, <code>decision</code>, <code>rationale</code>, <code>evidence_ids?</code></td>
+</tr>
+<tr>
+<td><code>halt_rollout</code></td>
+<td><code>plan_id</code>, <code>evidence_id</code></td>
+</tr>
+<tr>
+<td><code>rollback</code></td>
+<td><code>plan_id</code>, <code>to_version</code>, <code>evidence_id</code>, one of <code>cohort</code> (dict, like hw_rev B) or <code>targets</code> (list)</td>
+</tr>
+<tr>
+<td><code>verify_recovery</code></td>
+<td><code>plan_id</code>, <code>targets?</code>, <code>minutes?</code></td>
+</tr>
+</tbody></table></div>
+<p>Config env vars: <code>HAWKBIT_URL</code>, <code>HAWKBIT_USERNAME</code>, <code>HAWKBIT_PASSWORD</code>, <code>PROMETHEUS_URL</code>, <code>LOKI_URL</code>, <code>LAB_CONTROLLER_URL</code>, <code>LAB_API_TOKEN</code>, <code>FLEET_LEDGER_PATH</code> (<code>run/fleet-ledger.sqlite</code>), <code>FLEET_MCP_HOST</code> (127.0.0.1), <code>FLEET_MCP_PORT</code> (8792), <code>FLEET_LAB_MOCK</code>, <code>FLEET_LAB_MOCK_SCENARIOS</code>, <code>FLEET_LAB_MOCK_TIME_SCALE</code>, <code>FLEET_EVIDENCE_MAX_AGE_S</code> (900), <code>FLEET_LAB_MAX_MINUTES</code> (5), <code>FLEET_LAB_PARALLEL</code> (server default 2; <code>agent/start_fleet_mcp.sh</code> sets 1, the AWS installer sets 2), <code>FLEET_OBSERVE_MAX_MINUTES</code> (4), <code>FLEET_POLL_INTERVAL_S</code> (15), <code>BUNDLES_DIR</code> (<code>sim/bundles</code>), <code>FLEET_TH_&lt;FIELD&gt;</code> (threshold overrides).</p>
+<h3 id="5-7-trueforge-api-used">5.7 TrueForge API used</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Caller</th>
+<th>Call</th>
+</tr></thead><tbody>
+<tr>
+<td><code>agent/register.py</code></td>
+<td><code>PUT /api/v1/settings/mcp-servers</code> (fleet, grafana); <code>GET /api/v1/agents</code>; <code>PUT /api/v1/agents/{id}</code> (body without <code>name</code>) or <code>POST /api/v1/agents</code></td>
+</tr>
+<tr>
+<td><code>agent/driver.py</code></td>
+<td><code>POST /api/v1/sessions</code> (agent name wavebreak); <code>POST /api/v1/sessions/{id}/turns</code> with <code>stream: true</code> (SSE events <code>model.message.delta</code>, <code>tool.response</code>, <code>tool.approval_required</code>, <code>turn.done</code>); resume with <code>user.tool_approval</code> items (allow or deny)</td>
+</tr>
+</tbody></table></div>
+<p>TrueForge start: <code>agent/spike/start_trueforge.sh</code> sets <code>OUTBOUND_URL_ALLOWED_HOSTS=&#x27;[&quot;127.0.0.1&quot;,&quot;localhost&quot;]&#x27;</code> (its SSRF guard blocks loopback otherwise) and <code>MCP_REQUEST_TIMEOUT_MS=900000</code> (default 240000 is too short for <code>observe_wave</code> and <code>rehearse</code>). Model key in <code>agent/spike/.env</code> (<code>GEMINI_API_KEY</code>).</p>
+<h3 id="5-8-telemetry-ingest-and-fluent-bit-pipeline">5.8 Telemetry ingest and Fluent Bit pipeline</h3>
+<p>Install (Debian bookworm): apt repo <code>packages.fluentbit.io</code>, package <code>fluent-bit</code>; validate with <code>fluent-bit --dry-run -c &lt;file&gt;</code>.</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Stage</th>
+<th>Plugin</th>
+<th>Config (from <code>sim/device/.../wavebreak.conf</code>)</th>
+</tr></thead><tbody>
+<tr>
+<td>input</td>
+<td><code>prometheus_scrape</code></td>
+<td><code>127.0.0.1:9100</code>, <code>/metrics</code>, every 5 s</td>
+</tr>
+<tr>
+<td>input</td>
+<td><code>systemd</code></td>
+<td>units <code>inference-app.service</code>, <code>ota-agent.service</code>, <code>_PID=1</code>; <code>read_from_tail</code>, <code>strip_underscores</code>, <code>lowercase</code>, db</td>
+</tr>
+<tr>
+<td>input</td>
+<td><code>tail</code></td>
+<td><code>/var/log/wavebreak/boot.log</code>, parser json, <code>read_from_head</code></td>
+</tr>
+<tr>
+<td>input</td>
+<td><code>kmsg</code></td>
+<td>Firecracker only (runtime include file), not emitted</td>
+</tr>
+<tr>
+<td>filter</td>
+<td><code>record_modifier</code></td>
+<td><code>source journal</code> or <code>source boot</code></td>
+</tr>
+<tr>
+<td>output</td>
+<td><code>prometheus_remote_write</code></td>
+<td><code>${PROM_HOST}:${PROM_PORT}/api/v1/write</code>, <code>add_label</code> device_id, hw_rev, region, fw_version, <code>retry_limit 3</code></td>
+</tr>
+<tr>
+<td>output</td>
+<td><code>loki</code></td>
+<td><code>${LOKI_HOST}:${LOKI_PORT}</code>, <code>match_regex ^(journal or boot or kmsg)$</code>, labels <code>job=wavebreak, device_id, hw_rev, region, fw_version, $source</code>, <code>line_format json</code></td>
+</tr>
+</tbody></table></div>
+<p>Labels come from <code>labels.env</code> via the unit&#x27;s <code>EnvironmentFile</code>; <code>${VAR}</code> is substituted at load, so ota-agent restarts Fluent Bit after rewriting it. Prometheus label substitution is proven by working demos; Loki <code>labels</code> substitution is not separately proven (Q7).</p>
+<h3 id="5-9-ports">5.9 Ports</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Port</th>
+<th>Service</th>
+</tr></thead><tbody>
+<tr>
+<td>8080</td>
+<td>hawkBit DDI and Management API</td>
+</tr>
+<tr>
+<td>8081</td>
+<td>hawkBit UI (host); ota-agent local API inside lab devices</td>
+</tr>
+<tr>
+<td>8082</td>
+<td>hawkBit MCP (optional, not installed)</td>
+</tr>
+<tr>
+<td>8000</td>
+<td>mcp-grafana</td>
+</tr>
+<tr>
+<td>8090</td>
+<td>Lab controller</td>
+</tr>
+<tr>
+<td>8790</td>
+<td>TrueForge</td>
+</tr>
+<tr>
+<td>8792</td>
+<td>Fleet MCP server</td>
+</tr>
+<tr>
+<td>9090</td>
+<td>Prometheus (keep private)</td>
+</tr>
+<tr>
+<td>3100</td>
+<td>Loki (keep private)</td>
+</tr>
+<tr>
+<td>3000</td>
+<td>Grafana</td>
+</tr>
+<tr>
+<td>9100</td>
+<td>node_exporter (device local)</td>
+</tr>
+</tbody></table></div>
+<hr></section>
+<section id="6-data" class="slide"><h2>6. Data</h2><h3 id="6-1-device-metrics-textfile-collector">6.1 Device metrics (textfile collector)</h3>
+<p>In containers node_exporter reports <strong>host</strong> memory, so app-level and cgroup metrics are authoritative (D11).</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>wavebreak_app_info{fw_version,sensor}</code></td>
+<td>gauge (1)</td>
+<td>running version, sensor 1080p or 4K</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_rss_bytes</code></td>
+<td>gauge</td>
+<td>app RSS</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_cgroup_memory_bytes</code></td>
+<td>gauge</td>
+<td>unit cgroup <code>memory.current</code> (omitted if unreadable)</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_frames_total</code></td>
+<td>counter</td>
+<td>frames processed, heartbeat for the health window</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_fps</code></td>
+<td>gauge</td>
+<td>frames per second</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_cache_items</code></td>
+<td>gauge</td>
+<td>items in cache (includes the enhance buffer on v1.2 and v1.4)</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_frame_latency_seconds</code></td>
+<td>gauge</td>
+<td>per-frame latency (v1.1 and later)</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_restarts_total</code></td>
+<td>counter</td>
+<td>systemd NRestarts (timer unit)</td>
+</tr>
+<tr>
+<td><code>wavebreak_app_last_result{result}</code></td>
+<td>gauge</td>
+<td>systemd Result</td>
+</tr>
+<tr>
+<td><code>wavebreak_device_boot_time_seconds</code></td>
+<td>gauge</td>
+<td>boot timestamp</td>
+</tr>
+</tbody></table></div>
+<p>Every series carries <code>device_id</code>, <code>hw_rev</code>, <code>region</code>, <code>fw_version</code> (added by Fluent Bit). The fleet MCP uses <code>wavebreak_app_cgroup_memory_bytes</code>, <code>wavebreak_app_restarts_total</code> and <code>wavebreak_app_fps</code>.</p>
+<h3 id="6-2-log-streams-loki">6.2 Log streams (Loki)</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Label</th>
+<th>Values</th>
+</tr></thead><tbody>
+<tr>
+<td><code>job</code></td>
+<td><code>wavebreak</code></td>
+</tr>
+<tr>
+<td><code>device_id</code></td>
+<td><code>edge-001</code> to <code>edge-020</code> (lab devices send no telemetry)</td>
+</tr>
+<tr>
+<td><code>hw_rev</code></td>
+<td><code>A</code>, <code>B</code></td>
+</tr>
+<tr>
+<td><code>region</code></td>
+<td><code>us-east</code>, <code>eu-west</code>, <code>ap-south</code></td>
+</tr>
+<tr>
+<td><code>fw_version</code></td>
+<td><code>v1.0</code> to <code>v1.4</code></td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>journal</code>, <code>boot</code> (<code>kmsg</code> reserved for Firecracker)</td>
+</tr>
+</tbody></table></div>
+<p>Log lines are JSON. App events: <code>startup</code>, <code>frame_stats</code> (every 5 s: <code>frames_total</code>, <code>fps</code>, <code>cache_items</code>, <code>detections</code>, <code>latency_s</code>), <code>config_reload</code>, <code>config_reload_failed</code>, <code>shutdown</code>. ota-agent events: <code>install_start</code>, <code>install_result</code> (<code>ok</code>, <code>msg</code>), <code>install_rollback</code>, <code>config_data_sent</code>, <code>deployment_received</code>, <code>ddi_error</code>, <code>action_canceled</code>, <code>local_api_start</code>, <code>local_api_request</code>.</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Pattern</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>Failed with result &#x27;oom-kill&#x27;</code></td>
+<td>OOM kill (the fleet MCP counts this line per device)</td>
+</tr>
+<tr>
+<td><code>&quot;event&quot;:&quot;config_reload_failed&quot;</code> then a KeyError traceback</td>
+<td>v1.3 crash</td>
+</tr>
+<tr>
+<td><code>&quot;event&quot;:&quot;install_result&quot;</code></td>
+<td>install success or failure</td>
+</tr>
+<tr>
+<td><code>&quot;previous_shutdown&quot;:&quot;unclean&quot;</code></td>
+<td>crash or power loss before this boot</td>
+</tr>
+</tbody></table></div>
+<p>Log JSON is compact (no space after the colon); match on substrings.</p>
+<h3 id="6-3-boot-and-availability-records">6.3 Boot and availability records</h3>
+<p><code>/var/log/wavebreak/boot.log</code>: one JSON line per boot (fields in <a href="#3-1-simulated-device">3.1</a>). The marker <code>/var/lib/wavebreak/clean_shutdown</code> is touched on unit stop; a missing marker means <code>unclean</code>. Containers generate a <code>boot_id</code> per start (the kernel one is the host&#x27;s).</p>
+<h3 id="6-4-device-identity-and-hawkbit-attributes">6.4 Device identity and hawkBit attributes</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Attribute</th>
+<th>Source</th>
+<th>Values</th>
+</tr></thead><tbody>
+<tr>
+<td><code>device_id</code></td>
+<td>env <code>DEVICE_ID</code></td>
+<td><code>edge-001</code> and up; lab <code>lab-NNN</code></td>
+</tr>
+<tr>
+<td><code>hw_rev</code></td>
+<td>env <code>HW_REV</code></td>
+<td><code>A</code>, <code>B</code> (rev B is the 4K sensor)</td>
+</tr>
+<tr>
+<td><code>region</code></td>
+<td>env <code>REGION</code></td>
+<td><code>us-east</code>, <code>eu-west</code>, <code>ap-south</code>; lab <code>lab</code></td>
+</tr>
+<tr>
+<td><code>fw_version</code></td>
+<td>installed release</td>
+<td><code>v1.0</code> to <code>v1.4</code></td>
+</tr>
+</tbody></table></div>
+<p>Sent to hawkBit as configData; the fleet MCP reads them from <code>GET targets/{id}/attributes</code>. Fleet (<code>sim/fleet/fleet.yaml</code>): lite 4 devices (edge-001 B us-east, edge-002 A eu-west, edge-003 B ap-south, edge-004 A us-east), full 20 devices (12 A, 8 B); rev B rule: device i is B iff ceil(0.4 i) &gt; ceil(0.4 (i-1)) (D21).</p>
+<h3 id="6-5-ledger-schema">6.5 Ledger schema</h3>
+<p>SQLite, <code>run/fleet-ledger.sqlite</code> (host file, WAL, one connection per call). hawkBit stays the source of truth for what is deployed; the ledger records why.</p>
+<pre><code class="language-sql">CREATE TABLE rollouts (
+  plan_id TEXT PRIMARY KEY,        -- plan-YYYYMMDD-xxxx
+  version TEXT NOT NULL,
+  from_version TEXT NOT NULL,
+  waves_json TEXT NOT NULL,        -- {&quot;waves&quot;: [[ids]], &quot;devices&quot;: {id: {hw_rev, region}}, &quot;held&quot;: [{hw_rev, device_ids, evidence_id, reasons, reason}]}
+  phase TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  type TEXT NOT NULL,              -- rehearsal, observation, decision, approval, action, verification, hold, error
+  wave INTEGER,
+  evidence_id TEXT,                -- ev-xxxxxxxx, set for rehearsal, observation, verification
+  payload_json TEXT NOT NULL
+);</code></pre>
+<ul>
+<li>Phases: PLANNED, REHEARSED, BLOCKED, WAVE_RUNNING, WAVE_OBSERVED, COMPLETE, HALTED, ROLLED_BACK, VERIFIED. Terminal: BLOCKED, COMPLETE, VERIFIED.</li>
+<li>Action kinds (type <code>action</code>): <code>plan_created</code>, <code>superseded</code>, <code>wave_started</code>, <code>halt</code>, <code>rollback</code>.</li>
+<li><code>hold</code> event: <code>{hw_revs, device_ids, evidence_id, source_plan_id, reasons}</code>; the plan&#x27;s <code>held</code> list carries the same cohort and shows in <code>get_rollout_state</code>.</li>
+<li><code>approval</code> event: <code>{tool, approved_via: harness, evidence_id}</code>, written by the server after the preconditions pass.</li>
+<li><code>get_rollout_state</code> merges ledger and hawkBit and is the compaction-safe source of truth for progress.</li>
+</ul>
+<hr></section>
+<section id="7-fault-catalogue" class="slide"><h2>7. Fault catalogue</h2><div class="table-wrap"><table><thead><tr>
+<th>ID</th>
+<th>Release</th>
+<th>Trigger (real code)</th>
+<th>Cohort</th>
+<th>Symptoms</th>
+<th>Onset</th>
+<th>hawkBit sees</th>
+<th>Agent does</th>
+</tr></thead><tbody>
+<tr>
+<td>F1</td>
+<td>v1.2</td>
+<td><code>enhance_buffer</code> list appended per frame when the sensor is 4K, never evicted</td>
+<td>rev B only</td>
+<td>cgroup memory climbs about 11 to 12 MB/min at lite scale, OOM kill at MemoryMax, restart, repeat</td>
+<td>slope visible within 90 s; OOM about 3 min after start</td>
+<td>success on both revs</td>
+<td>rehearsal fails rev B (slope), passes rev A; partial rollout, rev B held</td>
+</tr>
+<tr>
+<td>F2</td>
+<td>v1.3</td>
+<td>config key renamed (<code>confidence_threshold</code>) with no migration; first reload reads a missing key</td>
+<td>all devices</td>
+<td><code>config_reload_failed</code>, KeyError, crash every ~47 s (45 s reload plus 2 s restart), <code>restarts_total</code> rising; fps looks normal between crashes</td>
+<td>first reload 45 s after each start, after the 15 s health window</td>
+<td>success</td>
+<td>rehearsal fails on both revs, plan BLOCKED, report with <code>get_bundle_diff</code></td>
+</tr>
+<tr>
+<td>none</td>
+<td>v1.0</td>
+<td>baseline</td>
+<td>all</td>
+<td>healthy</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>none</td>
+<td>v1.1</td>
+<td>adds per-frame latency metric</td>
+<td>all</td>
+<td>healthy</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>none</td>
+<td>v1.4</td>
+<td>bounded enhance buffer (<code>deque(maxlen=4)</code>), config key restored</td>
+<td>all</td>
+<td>healthy</td>
+<td></td>
+<td>success</td>
+<td>rehearsal passes, full rollout</td>
+</tr>
+</tbody></table></div>
+<p>Details:</p>
+<ul>
+<li>v1.3 is built from v1.1 (no enhance buffer), so rev B does not leak on v1.3; v1.4 fixes both F1 and F2.</li>
+<li>Bundle config defaults: <code>frame_bytes_1080p</code> 16384, <code>frame_bytes_4k</code> 40960 (times <code>WAVEBREAK_FRAME_SCALE</code>), <code>frame_interval_s</code> 0.2, <code>metrics_interval_s</code> 5, <code>config_reload_interval_s</code> 45.</li>
+<li>Bundle layout: <code>sim/bundles/vX.Y/{manifest.json, app/, config.yaml}</code> to <code>build/bundles/wavebreak-app-vX.Y.tar</code> plus <code>.sha256</code>.</li>
+</ul>
+<p>Timeline F1: T+0 v1.2 installed, health window passes, hawkBit shows success. T+0 to 3 min rev B memory climbs, rev A flat. About T+3 min OOM at MemoryMax, systemd restarts, cycle repeats.</p>
+<p>Timeline F2: T+0 v1.3 installed, 15 s window passes. T+45 s first config reload raises, systemd restarts after 2 s, repeats on every device.</p>
+<hr></section>
+<section id="8-rollout-state-machine" class="slide"><h2>8. Rollout state machine</h2><div class="mermaid-container" onclick="this.classList.toggle('zoomed')"><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; PLANNED: plan_rollout
+    PLANNED --&gt; REHEARSED: rehearse pass
+    PLANNED --&gt; BLOCKED: rehearse fail
+    REHEARSED --&gt; BLOCKED: new plan supersedes
+    PLANNED --&gt; BLOCKED: new plan supersedes
+    BLOCKED --&gt; [*]: report, or a new plan with exclude_hw_revs
+    REHEARSED --&gt; WAVE_RUNNING: start_wave 1 (approval)
+    WAVE_RUNNING --&gt; WAVE_OBSERVED: observe_wave
+    WAVE_OBSERVED --&gt; WAVE_RUNNING: healthy, start_wave n+1 (approval)
+    WAVE_OBSERVED --&gt; WAVE_OBSERVED: inconclusive, observe again
+    WAVE_OBSERVED --&gt; COMPLETE: healthy on the last wave
+    WAVE_OBSERVED --&gt; HALTED: regression, halt_rollout (approval)
+    HALTED --&gt; ROLLED_BACK: rollback (approval)
+    ROLLED_BACK --&gt; VERIFIED: verify_recovery
+    COMPLETE --&gt; [*]
+    VERIFIED --&gt; [*]</pre></div>
+<ul>
+<li>A new plan is refused (<code>ACTIVE_PLAN_EXISTS</code>) while another is in WAVE_RUNNING, WAVE_OBSERVED, HALTED or ROLLED_BACK. PLANNED and REHEARSED plans are superseded (set to BLOCKED with an <code>action</code> event <code>superseded</code>).</li>
+<li>Partial rollout: a BLOCKED plan whose rehearsal failed for only some hw_revs is followed by a new plan with <code>exclude_hw_revs</code> and the failed rehearsal&#x27;s <code>evidence_id</code>. The new plan covers the kept hw_revs, is rehearsed again, and records the hold. Held devices are never in a wave.</li>
+<li>Default waves 2, 5, rest, stratified by hw_rev (round-robin over strata, regions spread). On the 4-device lab fleet the default gives wave 1 = 2 devices, wave 2 = the rest; for a single-cohort partial plan use <code>[1, &quot;rest&quot;]</code>.</li>
+</ul>
+<hr></section>
+<section id="9-deployment-and-runbook" class="slide"><h2>9. Deployment and runbook</h2><div class="table-wrap"><table><thead><tr>
+<th></th>
+<th>Local (WSL, dev)</th>
+<th>AWS (build day)</th>
+</tr></thead><tbody>
+<tr>
+<td>Profile</td>
+<td>lite (4 devices, H2)</td>
+<td>full (20 devices, MySQL)</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td>container</td>
+<td>container (Firecracker is not implemented)</td>
+</tr>
+<tr>
+<td>Host</td>
+<td>3.5 GB RAM (shared with TrueForge), 8 vCPU</td>
+<td><code>m7i.2xlarge</code>, Ubuntu 24.04 amd64, 58 GB disk</td>
+</tr>
+<tr>
+<td>Access</td>
+<td>localhost</td>
+<td>SSH port 22 from the operator&#x27;s <code>/32</code>; tunnel web ports over SSH</td>
+</tr>
+<tr>
+<td>Bootstrap</td>
+<td>Makefile targets</td>
+<td><code>make aws-sync</code>, then <code>infra/aws/install.sh</code></td>
+</tr>
+</tbody></table></div>
+<p>Make targets (<code>PROFILE=lite or full</code>): <code>up</code>, <code>down</code>, <code>reset</code>, <code>ps</code>, <code>hawkbit-config</code>, <code>bundles</code>, <code>publish</code>, <code>fleet</code>, <code>fleet-down</code>, <code>fleet-status</code>, <code>seed</code>, <code>lab</code>, <code>demo-reset</code>, <code>demo-status</code>, <code>grafana-sa</code>, <code>aws-sync</code>, <code>e2e</code>, <code>test</code>, <code>lint</code>, <code>all</code>, <code>view</code>.</p>
+<h3 id="9-1-local-lite-runbook">9.1 Local lite runbook</h3>
+<p>Memory rules: keep <code>wavebreak-hawkbit-ui-1</code> stopped while testing, <code>FLEET_LAB_PARALLEL=1</code>, never more than 4 field plus 1 lab device.</p>
+<pre><code class="language-bash">cp .env.example .env
+make up PROFILE=lite
+make bundles publish
+make grafana-sa
+make demo-reset          # 4 devices on v1.1 and healthy, lab empty (about 45 to 65 s)
+make demo-status
+
+python3 -m venv .venv &amp;&amp; .venv/bin/pip install -r agent/requirements.txt   # plus agent/spike/.env with GEMINI_API_KEY (git-ignored)
+agent/spike/start_trueforge.sh        # :8790, refuses a second copy
+agent/start_fleet_mcp.sh              # :8792, log run/fleet-mcp.log, FLEET_LAB_PARALLEL defaults to 1 in the script
+.venv/bin/python agent/register.py    # MCP servers and the wavebreak agent
+.venv/bin/python agent/driver.py &quot;v1.3 is published. Take care of the rollout.&quot;</code></pre>
+<p><code>make demo-reset</code> stops active rollouts, cancels active actions, assigns v1.1, waits for healthy reports and empties the lab; run it before each scene. <code>scripts/e2e.sh</code> removes the lite fleet on exit, so run <code>make demo-reset</code> again after it. Grafana <code>http://localhost:3000</code> (admin, <code>GRAFANA_ADMIN_PASSWORD</code>). Optional hawkBit UI: <code>make up PROFILE=lite HAWKBIT_UI=1</code>, <code>http://localhost:8081</code>. When finished: <code>make fleet-down PROFILE=lite RUNTIME=container</code> and <code>make down</code>.</p>
+<h3 id="9-2-full-profile">9.2 Full profile</h3>
+<p>On a host with memory for the full backend and 20 devices: <code>make up PROFILE=full RUNTIME=container</code>, <code>make bundles publish</code>, <code>make fleet PROFILE=full RUNTIME=container</code>, <code>make demo-reset PROFILE=full</code>, <code>make grafana-sa</code>, <code>make demo-status</code>. <code>demo-reset.sh</code> derives the expected device count from <code>sim/fleet/fleet.yaml</code> for the selected profile.</p>
+<h3 id="9-3-aws-launch-checklist">9.3 AWS launch checklist</h3>
+<p>Before launch, push <code>master</code> to <code>origin</code>. The deploy path below uses <code>git archive HEAD</code>, so only committed files are uploaded.</p>
+<ol>
+<li>Launch an <code>m7i.2xlarge</code> in Mumbai with Ubuntu 24.04 amd64, a 58 GiB root disk, a key pair and a public IPv4 address.</li>
+<li>Security group inbound: only TCP 22 from the operator&#x27;s current public IP <code>/32</code>. Keep all application and telemetry ports closed; access web UIs with the SSH tunnel in <code>docs/aws-deploy.md</code>.</li>
+<li>From the committed local checkout, run <code>make aws-sync</code>. It copies <code>.env</code> and <code>agent/spike/.env</code> with mode 0600, replaces deployed source from <code>git archive HEAD</code>, preserves runtime directories and Docker volumes, refreshes Python requirements, rebuilds changed device/lab images, and restarts the systemd agent services. On first sync it only stages source and secrets because Docker is not installed yet.</li>
+<li>SSH to the instance and run:</li>
+</ol>
+<pre><code class="language-bash">   sudo env REPO_DIR=/home/ubuntu/wavebreak bash /home/ubuntu/wavebreak/infra/aws/install.sh</code></pre>
+<p>The installer installs Docker Compose, Node.js 22, <code>socat</code>, <code>ripgrep</code> and Python tooling; starts the full container profile; publishes bundles; launches and resets the fleet to v1.1; creates the Grafana Viewer token; installs <code>agent/requirements.txt</code>; enables <code>wavebreak-trueforge</code> and <code>wavebreak-fleet-mcp</code> systemd services; registers the TrueFoundry gateway provider and wavebreak agent; and prints URLs. Gateway values (<code>TFY_API_KEY</code>, <code>TFY_MODEL</code>, <code>TFY_MODEL_DEV</code>) come from <code>agent/spike/.env</code>; set <code>TFY_BASE_URL=https://gateway.truefoundry.ai</code> there. See <code>docs/aws-deploy.md</code> for sync, registration refresh, verification, and tunnel commands.</p>
+<hr></section>
+<section id="10-decisions-log" class="slide"><h2>10. Decisions log</h2><p>Environment decisions (D-series) and agent decisions (A-series, full rationale in <code>docs/agent-design.md</code> §23).</p>
+<div class="table-wrap"><table><thead><tr>
+<th>ID</th>
+<th>Decision</th>
+<th>Reason</th>
+<th>Date</th>
+</tr></thead><tbody>
+<tr>
+<td>D1</td>
+<td>Real hawkBit, not a mock</td>
+<td>Production-like behaviour; OSS with Docker images</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D2</td>
+<td>Debian + systemd devices</td>
+<td>journald, unit management, MemoryMax and OOM semantics</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D3</td>
+<td>Fluent Bit on devices</td>
+<td>One lightweight agent for metrics (remote_write) and logs (Loki)</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D4</td>
+<td>A/B <strong>app</strong> slots under <code>/opt/app</code> (supersedes rootfs slots)</td>
+<td>Clean rollback semantics without rebuilding rootfs</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D5</td>
+<td>Faults are real code diffs</td>
+<td>Symptoms emerge from processes misbehaving, never fabricated logs</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D6</td>
+<td>Mermaid flowcharts styled as C4</td>
+<td>Mermaid C4 syntax renders unreliably</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D7</td>
+<td>architecture.md is the single design source for the environment; HTML is generated</td>
+<td>One file to maintain</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D8</td>
+<td>Three zones: backend, field, lab (agent zone added 2026-09-26)</td>
+<td>Mirrors production: devices behind NAT, isolated rehearsal</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D9</td>
+<td>Devices push telemetry; no Prometheus scraping of devices</td>
+<td>Real devices are behind NAT and only initiate outbound connections</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D10</td>
+<td>Releases v1.0 to v1.4 as app bundles</td>
+<td>Two independent faults plus a fix release</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D11</td>
+<td>App-level and cgroup metrics are the memory source of truth</td>
+<td>node_exporter in containers reports host memory</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D12</td>
+<td>systemd containers run with <code>--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock</code>, not privileged</td>
+<td>Verified in WSL: reaches running, MemoryMax enforced</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D13</td>
+<td>Firecracker guest kernel from the CI bucket (newest 6.1 that exists)</td>
+<td>Verified: v1.15 has 6.1.155 and boots under KVM in WSL. Runtime otherwise parked</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D14</td>
+<td>DDI auth via gateway token</td>
+<td>One token for the simulation; production would use per-device tokens or mTLS</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D15</td>
+<td>Rootless rootfs build via <code>docker export</code> and <code>fakeroot mkfs.ext4 -d</code> (planned, unbuilt)</td>
+<td>No sudo needed</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D16</td>
+<td>Lab controller is a compose service on backend and lab networks</td>
+<td>Agent gets only the token API. Host-process variant for Firecracker not built</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D17</td>
+<td>Device-side Python is stdlib only</td>
+<td>Small image, no pip in rootfs</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D18</td>
+<td>Part A built by an overnight headless Claude loop with cheap subagents</td>
+<td>Save build-day tokens for the agent</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D19</td>
+<td>hawkBit MCP runs the Maven Central jar on the hawkBit image JRE (optional profile <code>mcp</code>)</td>
+<td>No official image; no local Maven build</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D20</td>
+<td>Release source in <code>sim/bundles/vX.Y/</code> (full copies); <code>sim/inference-app/</code> holds shared tests</td>
+<td>Releases must be real, diffable code</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D21</td>
+<td>Rev B: device i is B iff ceil(0.4 i) &gt; ceil(0.4 (i-1))</td>
+<td>Deterministic, spread; edge-001 is B</td>
+<td>2026-09-25</td>
+</tr>
+<tr>
+<td>D22</td>
+<td>Lite hawkBit uses file-backed H2 with <code>MODE=LEGACY</code> in the <code>hawkbit-artifacts</code> volume</td>
+<td>Image default H2 lost state on recreation; H2 2.x needs legacy mode</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D23</td>
+<td>If the lite volume is removed, run <code>make publish</code> then <code>make seed</code></td>
+<td>Idempotent publisher restores v1.0 to v1.4</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D24</td>
+<td>Identity setup uses temp files under <code>/run/wavebreak</code> with an exit trap</td>
+<td><code>/tmp</code> file missing during early boot</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D25</td>
+<td>Fleet <code>frame_scale</code> passes as <code>WAVEBREAK_FRAME_SCALE</code></td>
+<td>Profile controls allocation rate; identity must preserve the name</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D26</td>
+<td>E2E restart checks take the max over matching series scoped to the installed firmware</td>
+<td>remote-write keeps series across label changes</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D27</td>
+<td>Lab controller fetches bundles as a dedicated hawkBit user with six READ authorities</td>
+<td>Rehearsal must download releases without write access; target creation returns 403</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D28</td>
+<td>Grafana dashboard <code>Wavebreak Fleet</code> provisioned from <code>platform/grafana/dashboards/wavebreak-fleet.json</code></td>
+<td>One checked-in dashboard for version mix, memory, restarts, fps, OOM logs</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D29</td>
+<td>hawkBit UI is a separate optional 1.1.0 service, 384 MiB heap; on by default in full, <code>HAWKBIT_UI=1</code> in lite</td>
+<td>Keep lite memory small</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D30</td>
+<td><code>make demo-reset</code> stops rollouts, cancels actions, assigns v1.1, waits for every profile device to report healthy, empties the lab</td>
+<td>Repeatable demo state for lite and full</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D31</td>
+<td><code>make grafana-sa</code> rotates a Viewer token into <code>.env</code> and recreates mcp-grafana</td>
+<td>Read-only MCP access, reproducible</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D32</td>
+<td>AWS bootstrap via <code>infra/aws/install.sh</code>, Docker apt repo, NodeSource 22.x, generated credentials</td>
+<td>One repeatable setup; TrueForge needs Node 22.14+</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D33</td>
+<td><code>infra/aws/install.sh</code> installs <code>agent/requirements.txt</code>, enables TrueForge and fleet MCP systemd services, and registers the TrueFoundry gateway agent</td>
+<td>Whole demo comes up from one bootstrap and services survive disconnects/reboots</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D34</td>
+<td><code>demo-reset</code> waits for the selected profile&#x27;s device count from <code>sim/fleet/fleet.yaml</code></td>
+<td>Lite and full profiles share the same reset workflow</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>D35</td>
+<td>AWS code sync uses <code>git archive HEAD</code>, preserves runtime directories and Docker volumes, and runs TrueForge/MCP under systemd</td>
+<td>Deploys committed files only and survives disconnects and reboots</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A1</td>
+<td>Agent is a rollout manager, not a passive monitor</td>
+<td>Owns the full loop</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A2</td>
+<td>Single root agent, no multi-agent orchestration</td>
+<td>Phases are sequential</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A3</td>
+<td>Custom wavebreak-fleet MCP server</td>
+<td>Evidence joins, lab access, gated actions, ledger</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A4</td>
+<td>Grafana and hawkBit MCP read-only; all actions via evidence-gated tools</td>
+<td>Structural safety</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A5</td>
+<td>Approval by tool name plus annotations</td>
+<td>Unannotated tools would run ungated, including from Code Mode</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A6</td>
+<td>Evidence-id preconditions on action tools</td>
+<td>Evidence before verdict, structurally</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A7</td>
+<td>SQLite ledger plus hawkBit as state</td>
+<td>Compaction and restart safe; audit trail</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A8</td>
+<td>One hawkBit rollout per wave</td>
+<td>Prevents install-success auto-cascade</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A9</td>
+<td>Stratified canaries by hw_rev</td>
+<td>A subset bug cannot slip past wave 1</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A10</td>
+<td>Rehearsal lab is ours; the sandbox is for Code Mode and skills only</td>
+<td>Sandbox cannot reach devices or localhost</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A11</td>
+<td>Gen UI for evidence display; tool approval is the gate</td>
+<td>Gen UI buttons are not a guaranteed stop</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A12</td>
+<td>Blocking <code>observe_wave</code> with fallbacks</td>
+<td>No native wait in TrueForge</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A13</td>
+<td>Model: Google Gemini via TrueForge&#x27;s <code>google-gemini</code> provider (gemini-3.6-flash)</td>
+<td>AI Gateway is enterprise-only</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A14</td>
+<td>Sandbox: TrueForge local bubblewrap fallback (socat, ripgrep); Daytona optional</td>
+<td>Verified working; weaker than Daytona</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A15</td>
+<td>Every state-changing tool named in <code>require_approval_for_tools</code> and annotated destructive</td>
+<td>Unnamed tools run ungated</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A16</td>
+<td>TrueForge started with <code>OUTBOUND_URL_ALLOWED_HOSTS</code> and a raised <code>MCP_REQUEST_TIMEOUT_MS</code></td>
+<td>SSRF guard rejects loopback; default timeout 240 s</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A17</td>
+<td>Drive the agent over HTTP plus SSE for tests; approvals resume via a new turn</td>
+<td>No Python SDK</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A18</td>
+<td>Partial rollout: <code>plan_rollout</code> can hold whole hw_revs out of a plan (<code>exclude_hw_revs</code>) only with the evidence id of a failed rehearsal of the same version; the hold is a ledger event and a plan field, shown by <code>get_rollout_state</code> and in the final report</td>
+<td>Rehearsal on all hw_revs stays; a fault in one cohort must not block the healthy cohort, and the hold must be auditable</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A19</td>
+<td>Demo storyline: Scene 1 v1.3 blocked, Scene 2 v1.2 partial rollout (rev A only, rev B held), Scene 3 v1.4 full rollout</td>
+<td>v1.2 leak is visible in a 90 s lab window, so the canary-catch story is replaced by a partial-rollout story</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A20</td>
+<td>Single branch <code>master</code> in <code>~/wavebreak</code>; no worktrees</td>
+<td>Agent worktree merged; simpler workflow</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A21</td>
+<td>Driver retries transient provider errors (429, connection drops) with backoff and sends &quot;continue&quot;</td>
+<td>Free-tier Gemini limits and occasional &quot;Cannot connect to API&quot;</td>
+<td>2026-09-26</td>
+</tr>
+<tr>
+<td>A22</td>
+<td>Start scripts refuse a second copy when the port is taken and create <code>run/</code></td>
+<td>Duplicate servers corrupted state before</td>
+<td>2026-09-26</td>
+</tr>
+</tbody></table></div>
+<hr></section>
+<section id="11-open-questions-and-todo-verify" class="slide"><h2>11. Open questions and TODO(verify)</h2><div class="table-wrap"><table><thead><tr>
+<th>#</th>
+<th>Question</th>
+<th>Status</th>
+</tr></thead><tbody>
+<tr>
+<td>Q1</td>
+<td>hawkBit MCP server release, transport, port</td>
+<td>Resolved: jar on Maven Central, streamable HTTP; optional, unused by the agent</td>
+</tr>
+<tr>
+<td>Q2</td>
+<td>TrueForge API and harness structure</td>
+<td>Resolved: HTTP plus SSE; <code>docs/agent-design.md</code> §21</td>
+</tr>
+<tr>
+<td>Q3</td>
+<td>LLM gateway and models</td>
+<td>Resolved: Gemini via the built-in provider (A13)</td>
+</tr>
+<tr>
+<td>Q4</td>
+<td>hawkBit polling interval</td>
+<td>Resolved: tenant <code>pollingTime</code>; local value 10 s</td>
+</tr>
+<tr>
+<td>Q5</td>
+<td>systemd PID 1 in Docker without privileged</td>
+<td>Resolved: D12</td>
+</tr>
+<tr>
+<td>Q6</td>
+<td>AWS credits scope and limits</td>
+<td>TODO(verify) build day</td>
+</tr>
+<tr>
+<td>Q7</td>
+<td>Fluent Bit Loki <code>labels</code> env substitution</td>
+<td>TODO(verify): Prometheus side proven, Loki side unproven</td>
+</tr>
+<tr>
+<td>Q8</td>
+<td>hawkBit artifact storage</td>
+<td>Resolved: <code>/app/artifactrepo</code>, volume in compose</td>
+</tr>
+<tr>
+<td>Q9</td>
+<td>hawkBit image names</td>
+<td>Resolved: monolith 1.1.0</td>
+</tr>
+<tr>
+<td>Q10</td>
+<td>Fluent Bit remote_write static labels</td>
+<td>Resolved: <code>add_label</code>, repeatable</td>
+</tr>
+<tr>
+<td>Q11</td>
+<td>mcp-grafana transport</td>
+<td>Resolved: <code>-t streamable-http -address 0.0.0.0:8000</code>, <code>--disable-write</code>; caller token optional and unset</td>
+</tr>
+<tr>
+<td>Q12</td>
+<td>Read-only hawkBit user for the lab</td>
+<td>Resolved: D27</td>
+</tr>
+<tr>
+<td>Q13</td>
+<td>Host access to a Docker <code>internal</code> network</td>
+<td>Resolved in practice: host only reaches the controller, which is also on <code>backend</code></td>
+</tr>
+<tr>
+<td>Q14</td>
+<td>AWS CLI for nested virtualization on M8i</td>
+<td>Resolved (docs read); not needed for the container runtime</td>
+</tr>
+<tr>
+<td>Q15</td>
+<td>FIQL form <code>controllerId=in=(a,b)</code> for wave rollouts</td>
+<td>Resolved 2026-09-26: Scene 3 created two rollouts of 2 targets each</td>
+</tr>
+<tr>
+<td>Q16</td>
+<td>Does stopping a rollout cancel its pending actions?</td>
+<td>TODO(verify): <code>halt_rollout</code> only calls stop</td>
+</tr>
+<tr>
+<td>Q17</td>
+<td>Rollback path on the real fleet (halt, rollback, verify_recovery)</td>
+<td>TODO(verify): unit-tested only; not in the three scenes</td>
+</tr>
+<tr>
+<td>Q18</td>
+<td>Full-profile <code>demo-reset</code> on 20 devices</td>
+<td>TODO(verify) after the drift fix</td>
+</tr>
+<tr>
+<td>Q19</td>
+<td>AWS installer end to end</td>
+<td>TODO(verify) on build day</td>
+</tr>
+<tr>
+<td>Q20</td>
+<td>Gemini quota for the demo</td>
+<td>Free tier: 20 requests per model per day (observed 2026-09-26, one scene is about 20 requests); use a paid key. Only <code>gemini-3-6-flash</code> and <code>gemini-3-5-flash-lite</code> are configured in TrueForge</td>
+</tr>
+</tbody></table></div>
+<hr></section>
+<section id="12-drift-report" class="slide"><h2>12. Drift report</h2><p>Audit of code against these docs, 2026-09-26. Facts in the docs were corrected to match the code (sections 2 to 9). Items below are where the <strong>code deviates from an agreed design intent</strong> or where a doc claim cannot be met; each has a recommendation: <strong>fix code</strong> or <strong>accept and record a decision</strong>. No design text was rewritten to hide these.</p>
+<h3 id="12-1-code-versus-agreed-intent">12.1 Code versus agreed intent</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>#</th>
+<th>Severity</th>
+<th>Where (file:line)</th>
+<th>What differs</th>
+<th>Recommendation</th>
+</tr></thead><tbody>
+<tr>
+<td>C1</td>
+<td>High</td>
+<td><code>agent/fleet_mcp/preconditions.py:91-103</code>, <code>fleet.py:486-488</code></td>
+<td>A6/A9: <code>rehearse(hw_revs=[&quot;A&quot;])</code> on a plan that also contains rev B passes and allows <code>start_wave(1)</code> for a wave that includes rev B; coverage of every hw_rev in the wave is not checked (the output only lists <code>not_rehearsed</code>)</td>
+<td>Fix code: in <code>check_start_wave</code>, require the rehearsal evidence <code>hw_revs</code> to cover the plan&#x27;s hw_revs (or wave 1&#x27;s)</td>
+</tr>
+<tr>
+<td>C2</td>
+<td>High</td>
+<td><code>fleet.py:764-788</code>, <code>preconditions.py:152</code></td>
+<td><code>rollback</code> with some failed per-device assignments still moves the plan to ROLLED_BACK; failed devices are not retried (rollback allowed only from HALTED) and <code>verify_recovery</code> defaults to the rolled-back set, so VERIFIED can hide devices still on the bad version</td>
+<td>Fix code: stay HALTED while any target failed, or allow retry from ROLLED_BACK; make <code>verify_recovery</code> cover all affected targets</td>
+</tr>
+<tr>
+<td>C3</td>
+<td>High</td>
+<td><code>backends.py:309-311</code></td>
+<td>Evidence integrity: the Loki OOM query fails open (any error returns 0 OOM kills), so a Loki outage can turn an OOM regression into &quot;healthy&quot;</td>
+<td>Fix code: return a <code>loki_unavailable</code> flag and downgrade to inconclusive</td>
+</tr>
+<tr>
+<td>C4</td>
+<td>Medium</td>
+<td><code>fleet.py:558-563</code>, <code>config.py:50</code></td>
+<td>Evidence freshness (900 s) is checked after human approval; a slow approver makes the approved call fail with EVIDENCE_STALE</td>
+<td>Accept and record; optionally raise <code>FLEET_EVIDENCE_MAX_AGE_S</code> for demos</td>
+</tr>
+<tr>
+<td>C5</td>
+<td>Medium</td>
+<td><code>fleet.py:126-132</code>, <code>server.py:31</code>, <code>register.py:20-24</code></td>
+<td>A15: approval is enforced only by the agent manifest. The server records <code>approved_via: harness</code> unverified and has no auth, so anyone reaching 127.0.0.1:8792 bypasses approval. The approval tool list is duplicated (comment &quot;keep in sync&quot;; a test asserts equality)</td>
+<td>Accept and record (localhost-only demo); keep the sync test</td>
+</tr>
+<tr>
+<td>C6</td>
+<td>Medium</td>
+<td><code>fleet.py:328-418</code>, <code>preconditions.py:269-303</code></td>
+<td>New feature (A18): <code>plan_rollout</code> is ungated and write-annotated, so it is callable from Code Mode; the hold has no freshness or latest-of-kind check; the <code>start_wave</code> approval prompt shows plan, wave and evidence ids, not the held cohort</td>
+<td>Accept and record (A18 recorded); optionally show the held cohort in the <code>start_wave</code> return and tool description</td>
+</tr>
+<tr>
+<td>C7</td>
+<td>Medium</td>
+<td><code>agent/register.py:36-71</code>, <code>agent/instructions.md</code></td>
+<td>A14/§19: the manifest enables the sandbox but registers no <code>rollout-playbook</code> skill; the playbook is inline; no sandbox provider is pinned</td>
+<td>Accept and record (inline playbook)</td>
+</tr>
+<tr>
+<td>C8</td>
+<td>Low</td>
+<td><code>agent/instructions.md</code> (workflow step 6)</td>
+<td>The inconclusive cap (&quot;at most 3 observes, then ask&quot;) is only in the instructions; the server does not count it</td>
+<td>Accept and record, or add a ledger counter</td>
+</tr>
+<tr>
+<td>C9</td>
+<td>Low</td>
+<td><code>agent/fleet_mcp/fleet.py:507-514</code></td>
+<td>A10: a lab create that times out leaves an orphan lab container (cleanup covers only known ids); the lab controller has no per-total cap or TTL</td>
+<td>Accept; optionally sweep orphans via <code>GET /lab/devices</code></td>
+</tr>
+<tr>
+<td>C10</td>
+<td>Low</td>
+<td><code>agent/fleet_mcp/backends.py:151-164</code></td>
+<td>Design says halt cancels pending actions; code only POSTs <code>/stop</code> on unfinished rollouts</td>
+<td>Verify against hawkBit (Q16) then fix code or accept</td>
+</tr>
+<tr>
+<td>C11</td>
+<td>Low</td>
+<td><code>agent/fleet_mcp/server.py:33-37</code></td>
+<td><code>observe_wave</code> and <code>verify_recovery</code> carry a read-only annotation but write ledger events and change phase</td>
+<td>Accept and record (evidence writes are not field actions)</td>
+</tr>
+<tr>
+<td>C12</td>
+<td>Info</td>
+<td><code>agent/fleet_mcp/backends.py:81-95</code></td>
+<td>N+2 serial hawkBit calls per device; <code>list_targets(limit=500)</code> unpaged</td>
+<td>Accept at 20 devices</td>
+</tr>
+</tbody></table></div>
+<h3 id="12-2-environment-code-versus-doc-claims">12.2 Environment code versus doc claims</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>#</th>
+<th>Severity</th>
+<th>Where (file:line)</th>
+<th>What differs</th>
+<th>Recommendation</th>
+</tr></thead><tbody>
+<tr>
+<td>C-E1</td>
+<td>Resolved</td>
+<td><code>scripts/demo-reset.sh:101</code></td>
+<td>Reset now waits for the selected profile&#x27;s device count from <code>sim/fleet/fleet.yaml</code>; full 20-device live timing remains to verify</td>
+<td>Fixed 2026-09-26</td>
+</tr>
+<tr>
+<td>C-E2</td>
+<td>High</td>
+<td><code>sim/fleet/fleetctl.py:69-70</code>, <code>sim/runtime/firecracker/</code></td>
+<td>Firecracker runtime is not implemented (<code>RUNTIME=container only</code>; only <code>fetch.sh</code> and the network script exist; no rootfs build, VM launcher or host-process lab controller). <code>source=kmsg</code> is never emitted</td>
+<td>Accept and record: Firecracker parked (docs now say so)</td>
+</tr>
+<tr>
+<td>C-E3</td>
+<td>Medium</td>
+<td><code>lab/controller/app.py:181-184</code>, <code>:318-319</code></td>
+<td>Any device HTTP error, including the device&#x27;s 422 install failure, becomes a controller 502; the 422 branch is unreachable, and <code>wait_device</code> retries a 502 for 45 s</td>
+<td>Fix code: map device 422 to a 422 install result</td>
+</tr>
+<tr>
+<td>C-E4</td>
+<td>Medium</td>
+<td><code>platform/docker-compose.yml:59,114,126,108</code></td>
+<td>Field zone is not least-privilege: hawkBit (Management API, basic auth), Prometheus (with <code>--web.enable-lifecycle</code>) and Loki are on the <code>field</code> network with no auth, so a device could quit Prometheus or query fleet data</td>
+<td>Accept for the demo; fix before production (separate ingest endpoints, drop lifecycle flag)</td>
+</tr>
+<tr>
+<td>C-E5</td>
+<td>Medium</td>
+<td><code>sim/device/wavebreak.conf</code>, <code>lab/controller/app.py:143</code></td>
+<td>Lab devices run no Fluent Bit at all (TELEMETRY=0), so no <code>lab-NNN</code> series or logs exist; docs previously said &quot;outputs disabled&quot;</td>
+<td>Accept (docs fixed)</td>
+</tr>
+<tr>
+<td>C-E6</td>
+<td>Low</td>
+<td><code>wavebreak_clients/__init__.py</code>, <code>docs/IMPLEMENTATION.md</code> T11.3</td>
+<td>No <code>wavebreak_clients/lab.py</code>; the lab client is <code>HttpLab</code> in <code>agent/fleet_mcp/backends.py</code></td>
+<td>Accept and record; update the package docstring</td>
+</tr>
+<tr>
+<td>C-E7</td>
+<td>Low</td>
+<td><code>wavebreak_clients/observability.py:15-17</code></td>
+<td>Docstring uses LogQL labels <code>app=</code> that do not exist (real: <code>job</code>, <code>device_id</code>, <code>hw_rev</code>, <code>region</code>, <code>fw_version</code>, <code>source</code>)</td>
+<td>Fix code (docstring)</td>
+</tr>
+<tr>
+<td>C-E8</td>
+<td>Low</td>
+<td><code>sim/fleet/fleetctl.py:93</code>, <code>scripts/hawkbit-config.sh:27-29</code></td>
+<td>Target-token DDI mode is half-implemented: one shared <code>HAWKBIT_TARGET_TOKEN</code>, no per-target token provisioning</td>
+<td>Accept (gateway token is the decision, D14)</td>
+</tr>
+<tr>
+<td>C-E9</td>
+<td>Low</td>
+<td><code>platform/docker-compose.yml:171-182</code></td>
+<td><code>grafana/mcp-grafana:latest</code> is unpinned and <code>MCP_GRAFANA_SERVER_TOKEN</code> is unset, so the MCP port is unauthenticated inside the security group; Fluent Bit apt package unpinned</td>
+<td>Accept and pin versions before build day</td>
+</tr>
+<tr>
+<td>C-E10</td>
+<td>Low</td>
+<td><code>platform/prometheus/...</code>, dashboard <code>wavebreak-fleet</code> panel 1</td>
+<td><code>count by (fw_version)(wavebreak_app_info)</code> counts series, not devices; both versions linger after an OTA (D26)</td>
+<td>Accept</td>
+</tr>
+<tr>
+<td>C-E11</td>
+<td>Low</td>
+<td><code>.env.example</code></td>
+<td>Dead vars <code>AWS_REGION</code>, <code>AWS_INSTANCE_TYPE</code>, <code>HAWKBIT_MCP_URL</code>, <code>MCP_GRAFANA_URL</code>; many used vars (<code><em>_PORT</code>, <code>HAWKBIT_MEM</code>, <code>DEMO_RESET_TIMEOUT</code>, <code>E2E_</em></code>, <code>SEED_*</code>) are undocumented</td>
+<td>Fix docs or code</td>
+</tr>
+<tr>
+<td>C-E12</td>
+<td>Low</td>
+<td><code>Makefile:80</code></td>
+<td><code>make test</code> includes <code>lab/controller</code> (no tests; pytest exit 5 may fail the target) and <code>sim/fleet/tests</code> (absent); <code>wavebreak_clients/hawkbit.py</code> is untested</td>
+<td>Fix code</td>
+</tr>
+<tr>
+<td>C-E13</td>
+<td>Low</td>
+<td><code>platform/full.env:3,5</code>, compose <code>hawkbit-db</code></td>
+<td>MariaDB JDBC URL against <code>mysql:8.0</code> with an empty root password</td>
+<td>Accept for the demo; set a password before exposure</td>
+</tr>
+<tr>
+<td>C-E14</td>
+<td>Info</td>
+<td><code>sim/fleet/fleet.yaml</code></td>
+<td><code>hawkbit_poll_seconds</code>, <code>vm_mem_mib</code>, <code>vm_vcpus</code>, <code>lab_id_prefix</code> are unused by any code</td>
+<td>Remove or wire up</td>
+</tr>
+</tbody></table></div>
+<h3 id="12-3-docs-corrected-to-match-the-code-summary">12.3 Docs corrected to match the code (summary)</h3>
+<p>Ports and networks (<code>wavebreak_field</code>, <code>wavebreak_lab</code>), agent zone and ports 8790 and 8792, real endpoint lists (assignment is <code>distributionsets/{id}/assignedTargets</code>; stop, actions and delete calls added), DDI details (cancelAction, no fixed download path, backoff only after errors), health check rules, Fluent Bit values (5 s scrape, extra units, <code>job</code> label), metrics (<code>last_result</code>, <code>sensor</code>), boot record values (<code>first_boot</code>, extra fields, compact JSON), identity files, memory caps, F1 and F2 symptoms and onset (F2 fps is not zero), v1.3 lineage and v1.4 fixing both, Firecracker status, lab summary sampling, make targets, ledger blob layout and <code>hold</code> event, agent manifest values.</p></section>
+</main>
+
+<script>
+// Mermaid init
+mermaid.initialize({
+  startOnLoad: true,
+  theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+  flowchart: { curve: 'basis' },
+  securityLevel: 'loose'
+});
+
+// Active nav tracking
+const sections = document.querySelectorAll('.slide');
+const navLinks = document.querySelectorAll('.nav-link');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const link = document.querySelector(`.nav-link[data-section="${entry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { threshold: 0.3 });
+sections.forEach(s => observer.observe(s));
+
+// Present mode
+let currentSlide = 0;
+function togglePresent() {
+  document.body.classList.toggle('present');
+  const badge = document.querySelector('.mode-badge');
+  if (document.body.classList.contains('present')) {
+    badge.textContent = 'Present';
+    showSlide(0);
+  } else {
+    badge.textContent = 'Read';
+  }
+}
+function showSlide(n) {
+  const slides = document.querySelectorAll('.slide');
+  if (n < 0 || n >= slides.length) return;
+  currentSlide = n;
+  slides.forEach(s => s.classList.remove('active'));
+  slides[n].classList.add('active');
+  document.querySelector('.slide-counter').textContent = `${n + 1} / ${slides.length}`;
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'p' || e.key === 'P') { togglePresent(); return; }
+  if (!document.body.classList.contains('present')) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') showSlide(currentSlide + 1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') showSlide(currentSlide - 1);
+  if (e.key === 'Escape') togglePresent();
+});
+</script>
+</body>
+</html>
