@@ -145,6 +145,7 @@ cd "$repo"
 [[ -x .venv/bin/python ]] || python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r agent/requirements.txt
+.venv/bin/pip install --quiet PyYAML
 
 mkdir -p run
 device_hash=$(tar -cf - sim/device sim/ota-agent sim/inference-app sim/bundles/v1.0 | sha256sum | cut -d' ' -f1)

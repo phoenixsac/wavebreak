@@ -209,6 +209,7 @@ log 'installing agent dependencies (agent/requirements.txt) into .venv'
 [[ -x .venv/bin/python ]] || python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r agent/requirements.txt
+.venv/bin/pip install --quiet PyYAML
 
 # Gateway credentials are supplied out-of-band and never committed or printed.
 [[ -f agent/spike/.env ]] || die 'agent/spike/.env missing; sync gateway settings before installing the agent services'
