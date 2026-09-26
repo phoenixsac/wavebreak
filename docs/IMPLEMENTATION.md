@@ -44,8 +44,8 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T3.1 | `scripts/build-bundles.sh`: tar each `sim/bundles/vX.Y` into `build/bundles/wavebreak-app-vX.Y.tar` + `.sha256`; deterministic tar (sorted, fixed mtime/owner) | scaffolder | T4.2 | todo | — | shellcheck |
-| T3.2 | `scripts/publish-bundles.sh`: discover SM and DS types via Management API; create SM per version, upload artifact, create DS; idempotent (lookup by name+version) | orch | T2.1, T3.1 | todo | — | Uses curl + jq |
+| T3.1 | `scripts/build-bundles.sh`: tar each `sim/bundles/vX.Y` into `build/bundles/wavebreak-app-vX.Y.tar` + `.sha256`; deterministic tar (sorted, fixed mtime/owner) | scaffolder | T4.2 | done | static | Deterministic (sorted, fixed mtime/owner; rebuild gives same sha). Tar root: manifest.json, config.yaml, app/ |
+| T3.2 | `scripts/publish-bundles.sh`: discover SM and DS types via Management API; create SM per version, upload artifact, create DS; idempotent (lookup by name+version) | orch | T2.1, T3.1 | done | smoke | Ran twice against hawkBit 1.1.0: 5 SM + 5 DS created, second run no-op. POST bodies take type KEYS (application, app), not ids |
 | T3.3 | Smoke S1: hawkBit alone (H2, heap ~512 MB) + publish + one ota-agent process registers, gets v1.1, installs, reports success; tear down | verifier | T2.7, T3.2, T5.2 | todo | — | See §3 of prompt |
 
 ### M4 — inference-app

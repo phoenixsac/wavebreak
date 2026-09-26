@@ -360,7 +360,7 @@ Auth header: `Authorization: GatewayToken <token>` (or `TargetToken <token>`), b
 | `/rest/v1/targets/{id}/assignedDS` | POST | Assign DS to a target |
 | `/rest/v1/targets/{id}/actions/{actionId}` | GET | Action status |
 | `/rest/v1/softwaremoduletypes`, `/rest/v1/distributionsettypes` | GET | Discover types at runtime |
-| `/rest/v1/softwaremodules` | GET, POST | List / create SM |
+| `/rest/v1/softwaremodules` | GET, POST | List / create SM (body `type` is the type KEY, e.g. `application`; verified) |
 | `/rest/v1/softwaremodules/{id}/artifacts` | POST | Upload artifact (multipart) |
 | `/rest/v1/softwaremodules/{id}/artifacts/{artifactId}/download` | GET | Download artifact (lab controller, read-only) |
 | `/rest/v1/distributionsets` | GET, POST | List / create DS |

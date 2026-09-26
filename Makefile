@@ -58,7 +58,8 @@ e2e:
 	./scripts/e2e.sh
 
 test:
-	$(PY) -m pytest -q sim/ota-agent sim/inference-app wavebreak_clients $(wildcard lab/controller/tests) $(wildcard sim/fleet/tests)
+	set -e; for d in sim/ota-agent sim/inference-app wavebreak_clients $(wildcard lab/controller) $(wildcard sim/fleet/tests); do \
+	  echo "== $$d"; $(PY) -m pytest -q $$d; done
 
 lint:
 	$(PY) -m ruff check .
