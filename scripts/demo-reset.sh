@@ -98,7 +98,7 @@ while :; do
       jq -r '.version // empty' || true)
     [[ $version == v1.1 ]] && installed=$((installed + 1))
   done <<<"$targets"
-  (( installed == 4 )) && break
+  (( installed == DEVICE_COUNT )) && break
   sleep 3
 done
 

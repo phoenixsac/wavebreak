@@ -814,11 +814,11 @@ stateDiagram-v2
 |--|------------------|-----------------|
 | Profile | lite (4 devices, H2) | full (20 devices, MySQL) |
 | Runtime | container | container (Firecracker is not implemented) |
-| Host | 3.5 GB RAM (shared with TrueForge), 8 vCPU | `m8i.2xlarge`, Ubuntu 24.04 amd64, 60 GB gp3 |
-| Access | localhost | security group inbound limited to the operator's `/32`: 22, 3000, 8000, 8080, 8081, 8090 |
-| Bootstrap | Makefile targets | `infra/aws/install.sh` (static-reviewed, not yet run on AWS) |
+| Host | 3.5 GB RAM (shared with TrueForge), 8 vCPU | `m7i.2xlarge`, Ubuntu 24.04 amd64, 58 GB disk |
+| Access | localhost | SSH port 22 from the operator's `/32`; tunnel web ports over SSH |
+| Bootstrap | Makefile targets | `make aws-sync`, then `infra/aws/install.sh` |
 
-Make targets (`PROFILE=lite or full`): `up`, `down`, `reset`, `ps`, `hawkbit-config`, `bundles`, `publish`, `fleet`, `fleet-down`, `fleet-status`, `seed`, `lab`, `demo-reset`, `demo-status`, `grafana-sa`, `e2e`, `test`, `lint`, `all`, `view`.
+Make targets (`PROFILE=lite or full`): `up`, `down`, `reset`, `ps`, `hawkbit-config`, `bundles`, `publish`, `fleet`, `fleet-down`, `fleet-status`, `seed`, `lab`, `demo-reset`, `demo-status`, `grafana-sa`, `aws-sync`, `e2e`, `test`, `lint`, `all`, `view`.
 
 ### 9.1 Local lite runbook
 
@@ -843,22 +843,22 @@ agent/start_fleet_mcp.sh              # :8792, log run/fleet-mcp.log, FLEET_LAB_
 
 ### 9.2 Full profile
 
-On a host with memory for the full backend and 20 devices: `make up PROFILE=full RUNTIME=container`, `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, `make demo-reset PROFILE=full`, `make grafana-sa`, `make demo-status`. Note drift C-E1: `demo-reset.sh` waits for exactly 4 devices, so the full-profile reset does not complete until that is fixed.
+On a host with memory for the full backend and 20 devices: `make up PROFILE=full RUNTIME=container`, `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, `make demo-reset PROFILE=full`, `make grafana-sa`, `make demo-status`. `demo-reset.sh` derives the expected device count from `sim/fleet/fleet.yaml` for the selected profile.
 
 ### 9.3 AWS launch checklist
 
-Before launch, push `master` to `origin`; the bootstrap URL and default clone read `master`.
+Before launch, push `master` to `origin`. The deploy path below uses `git archive HEAD`, so only committed files are uploaded.
 
-1. Launch an `m8i.2xlarge` with Ubuntu 24.04 amd64, a 60 GiB gp3 root volume, a key pair and a public IPv4 address.
-2. Security group with source `<YOUR_PUBLIC_IP>/32` on every rule: TCP 22, 3000, 8000, 8080, 8081, 8090. Add 8082 only if the hawkBit MCP is installed. Do not open 9090 or 3100 (Docker-published ports bypass UFW; keep them closed at the security group). Also keep 8790 and 8792 closed (localhost only).
-3. SSH in as `ubuntu`, then:
+1. Launch an `m7i.2xlarge` in Mumbai with Ubuntu 24.04 amd64, a 58 GiB root disk, a key pair and a public IPv4 address.
+2. Security group inbound: only TCP 22 from the operator's current public IP `/32`. Keep all application and telemetry ports closed; access web UIs with the SSH tunnel in `docs/aws-deploy.md`.
+3. From the committed local checkout, run `make aws-sync`. It copies `.env` and `agent/spike/.env` with mode 0600, replaces deployed source from `git archive HEAD`, preserves runtime directories and Docker volumes, refreshes Python requirements, rebuilds changed device/lab images, and restarts the systemd agent services. On first sync it only stages source and secrets because Docker is not installed yet.
+4. SSH to the instance and run:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/phoenixsac/wavebreak/master/infra/aws/install.sh -o /tmp/wavebreak-install.sh
-   sudo env REPO_DIR=/opt/wavebreak bash /tmp/wavebreak-install.sh
+   sudo env REPO_DIR=/home/ubuntu/wavebreak bash /home/ubuntu/wavebreak/infra/aws/install.sh
    ```
 
-The installer installs Docker Engine and Compose, Node.js 22 (TrueForge needs 22.14 or newer), `socat`, `ripgrep`, `python3-venv`; clones or fast-forwards the repo; starts the full profile; publishes bundles; launches the fleet; resets it to v1.1; creates the Grafana Viewer token; creates `.venv` from `agent/requirements.txt`; starts TrueForge (`OUTBOUND_URL_ALLOWED_HOSTS`, `MCP_REQUEST_TIMEOUT_MS=900000`) and the fleet MCP server; registers the agent; prints URLs. It preserves non-example secrets in `.env` (root-owned, mode 0600) and generates replacements for example credentials. It expects `agent/spike/.env` with `GEMINI_API_KEY` (warns if missing). It does not create the EC2 instance or security group. It has only had static checks; the full-profile reset path is not live-tested on 20 devices.
+The installer installs Docker Compose, Node.js 22, `socat`, `ripgrep` and Python tooling; starts the full container profile; publishes bundles; launches and resets the fleet to v1.1; creates the Grafana Viewer token; installs `agent/requirements.txt`; enables `wavebreak-trueforge` and `wavebreak-fleet-mcp` systemd services; registers the TrueFoundry gateway provider and wavebreak agent; and prints URLs. Gateway values (`TFY_API_KEY`, `TFY_MODEL`, `TFY_MODEL_DEV`) come from `agent/spike/.env`; set `TFY_BASE_URL=https://gateway.truefoundry.ai` there. See `docs/aws-deploy.md` for sync, registration refresh, verification, and tunnel commands.
 
 ---
 
@@ -897,10 +897,12 @@ Environment decisions (D-series) and agent decisions (A-series, full rationale i
 | D27 | Lab controller fetches bundles as a dedicated hawkBit user with six READ authorities | Rehearsal must download releases without write access; target creation returns 403 | 2026-09-26 |
 | D28 | Grafana dashboard `Wavebreak Fleet` provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` | One checked-in dashboard for version mix, memory, restarts, fps, OOM logs | 2026-09-26 |
 | D29 | hawkBit UI is a separate optional 1.1.0 service, 384 MiB heap; on by default in full, `HAWKBIT_UI=1` in lite | Keep lite memory small | 2026-09-26 |
-| D30 | `make demo-reset` stops rollouts, cancels actions, assigns v1.1, waits for healthy, empties the lab | Repeatable demo state. Full profile count not yet parameterised (drift) | 2026-09-26 |
+| D30 | `make demo-reset` stops rollouts, cancels actions, assigns v1.1, waits for every profile device to report healthy, empties the lab | Repeatable demo state for lite and full | 2026-09-26 |
 | D31 | `make grafana-sa` rotates a Viewer token into `.env` and recreates mcp-grafana | Read-only MCP access, reproducible | 2026-09-26 |
 | D32 | AWS bootstrap via `infra/aws/install.sh`, Docker apt repo, NodeSource 22.x, generated credentials | One repeatable setup; TrueForge needs Node 22.14+ | 2026-09-26 |
-| D33 | `infra/aws/install.sh` also installs `agent/requirements.txt`, starts TrueForge and the fleet MCP with the guarded start scripts, and registers the agent | Whole demo comes up from one script | 2026-09-26 |
+| D33 | `infra/aws/install.sh` installs `agent/requirements.txt`, enables TrueForge and fleet MCP systemd services, and registers the TrueFoundry gateway agent | Whole demo comes up from one bootstrap and services survive disconnects/reboots | 2026-09-26 |
+| D34 | `demo-reset` waits for the selected profile's device count from `sim/fleet/fleet.yaml` | Lite and full profiles share the same reset workflow | 2026-09-26 |
+| D35 | AWS code sync uses `git archive HEAD`, preserves runtime directories and Docker volumes, and runs TrueForge/MCP under systemd | Deploys committed files only and survives disconnects and reboots | 2026-09-26 |
 | A1 | Agent is a rollout manager, not a passive monitor | Owns the full loop | 2026-09-26 |
 | A2 | Single root agent, no multi-agent orchestration | Phases are sequential | 2026-09-26 |
 | A3 | Custom wavebreak-fleet MCP server | Evidence joins, lab access, gated actions, ledger | 2026-09-26 |
@@ -978,7 +980,7 @@ Audit of code against these docs, 2026-09-26. Facts in the docs were corrected t
 
 | # | Severity | Where (file:line) | What differs | Recommendation |
 |---|----------|-------------------|--------------|----------------|
-| C-E1 | High | `scripts/demo-reset.sh:101`, `:20` | `(( installed == 4 ))` is hard-coded and the default timeout is 175 s, so `make demo-reset PROFILE=full` never completes on 20 devices; `infra/aws/install.sh` calls it | Fix code: expected count from the profile, longer timeout |
+| C-E1 | Resolved | `scripts/demo-reset.sh:101` | Reset now waits for the selected profile's device count from `sim/fleet/fleet.yaml`; full 20-device live timing remains to verify | Fixed 2026-09-26 |
 | C-E2 | High | `sim/fleet/fleetctl.py:69-70`, `sim/runtime/firecracker/` | Firecracker runtime is not implemented (`RUNTIME=container only`; only `fetch.sh` and the network script exist; no rootfs build, VM launcher or host-process lab controller). `source=kmsg` is never emitted | Accept and record: Firecracker parked (docs now say so) |
 | C-E3 | Medium | `lab/controller/app.py:181-184`, `:318-319` | Any device HTTP error, including the device's 422 install failure, becomes a controller 502; the 422 branch is unreachable, and `wait_device` retries a 502 for 45 s | Fix code: map device 422 to a 422 install result |
 | C-E4 | Medium | `platform/docker-compose.yml:59,114,126,108` | Field zone is not least-privilege: hawkBit (Management API, basic auth), Prometheus (with `--web.enable-lifecycle`) and Loki are on the `field` network with no auth, so a device could quit Prometheus or query fleet data | Accept for the demo; fix before production (separate ingest endpoints, drop lifecycle flag) |

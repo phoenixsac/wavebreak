@@ -5,7 +5,7 @@
 - Instructions: [docs/prompts/overnight.md](prompts/overnight.md)
 - Design source of truth: [docs/architecture.md](architecture.md)
 
-STATUS: COMPLETE
+STATUS: IN-PROGRESS
 
 ## How to use this file (loop runs)
 
@@ -140,6 +140,15 @@ STATUS: COMPLETE
 | T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | done | smoke | Live output grouped versions by hw_rev, showed four healthy v1.1 devices, no active rollouts/lab devices, and local service URLs. |
 | T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | done | static | Added and reviewed the missing installer against full-profile MySQL/artifact persistence, default hawkBit UI, lab build, provisioned dashboard, demo reset, Grafana token, and printed URLs. Did not run it. |
 | T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | done | static | Added full/lite demo commands and AWS launch checklist with instance type, inbound ports restricted to operator IP/32, bootstrap command, credential handling, and unrun status. |
+
+### M14 — AWS deployment
+
+| ID | Task | Owner | Depends | Status | Verif | Notes |
+|----|------|-------|---------|--------|-------|-------|
+| T14.1 | Make demo-reset wait for the selected profile's fleet count | orch | T13.1 | done | static | Replaced the hard-coded 4-device wait with the YAML-derived profile count; 20-device AWS run remains unverified. |
+| T14.2 | Add committed-archive AWS sync, mode-0600 secrets, conditional image builds, and systemd agent services | orch | T12.3 | in-progress | static | `scripts/aws-sync.sh`, `make aws-sync`, TrueForge and fleet MCP units; first AWS install and reboot behavior pending. |
+| T14.3 | Deploy and verify the full container profile on the supplied EC2 instance | orch | T14.2 | todo | — | Reset 20 devices to healthy v1.1; verify lab, Grafana data, TrueForge registration and one gateway turn. |
+| T14.4 | Document AWS update, re-registration and SSH tunnel workflow | orch | T14.2 | in-progress | static | `docs/aws-deploy.md` and architecture runbook updated; final commands/results to reconcile after deploy. |
 
 ## Needs human
 
