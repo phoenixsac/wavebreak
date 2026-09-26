@@ -11,7 +11,7 @@ die() { printf '[wavebreak-install] ERROR: %s\n' "$*" >&2; exit 1; }
 # shellcheck disable=SC1091
 . /etc/os-release
 [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] || die "Ubuntu 24.04 required (found ${PRETTY_NAME:-unknown})"
-[[ $(dpkg --print-architecture) == amd64 ]] || die 'the supported AWS target is amd64 (for example, m8i.2xlarge)'
+[[ $(dpkg --print-architecture) == amd64 ]] || die 'the supported AWS target is amd64 (for example, m7i.2xlarge)'
 
 REPO_URL=${REPO_URL:-https://github.com/phoenixsac/wavebreak.git}
 GIT_REF=${GIT_REF:-master}
@@ -97,6 +97,8 @@ elif [[ -d $REPO_DIR/.git ]]; then
     git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" checkout -b "$GIT_REF" FETCH_HEAD
   fi
   git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" pull --ff-only origin "$GIT_REF"
+elif [[ -d $REPO_DIR && -f $REPO_DIR/Makefile && -f $REPO_DIR/platform/docker-compose.yml ]]; then
+  log 'using committed archive deployment already staged at REPO_DIR'
 else
   die "$REPO_DIR exists but is not a git checkout; refusing to replace it"
 fi
@@ -195,13 +197,35 @@ make fleet PROFILE=full RUNTIME=container
 make demo-reset PROFILE=full
 make grafana-sa
 
+# The images above were built from this source. Record their inputs so later
+# aws-sync runs only rebuild when device or lab inputs change.
+device_hash=$(tar -cf - sim/device sim/ota-agent sim/inference-app sim/bundles/v1.0 | sha256sum | cut -d' ' -f1)
+lab_hash=$(tar -cf - lab/controller wavebreak_clients | sha256sum | cut -d' ' -f1)
+mkdir -p run
+printf '%s %s\n' "$device_hash" "$lab_hash" > run/aws-sync-images.sha256
+chmod 0600 run/aws-sync-images.sha256
+
 log 'installing agent dependencies (agent/requirements.txt) into .venv'
 [[ -x .venv/bin/python ]] || python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r agent/requirements.txt
 
-# TrueForge needs a model key in agent/spike/.env (GEMINI_API_KEY, PROVIDER, MODEL); never committed.
-[[ -f agent/spike/.env ]] || log 'WARNING: agent/spike/.env missing; create it with GEMINI_API_KEY before using the agent'
+# Gateway credentials are supplied out-of-band and never committed or printed.
+[[ -f agent/spike/.env ]] || die 'agent/spike/.env missing; sync gateway settings before installing the agent services'
+python3 - <<'PY'
+from pathlib import Path
+
+values = {}
+for line in Path("agent/spike/.env").read_text().splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        values[key] = value.strip().strip("'\"")
+required = ("TFY_API_KEY", "TFY_MODEL", "TFY_MODEL_DEV")
+missing = [name for name in required if not values.get(name)]
+if missing or values.get("TFY_BASE_URL") != "https://gateway.truefoundry.ai":
+    raise SystemExit("agent/spike/.env must define TFY_API_KEY, TFY_MODEL, TFY_MODEL_DEV, and TFY_BASE_URL=https://gateway.truefoundry.ai")
+PY
 
 wait_port() { # host port seconds
   local i
@@ -212,14 +236,18 @@ wait_port() { # host port seconds
   return 1
 }
 
-log 'starting TrueForge (:8790) and the fleet MCP server (:8792)'
-# start_trueforge.sh sets OUTBOUND_URL_ALLOWED_HOSTS and MCP_REQUEST_TIMEOUT_MS=900000 (defaults);
-# socat and ripgrep (installed above) back TrueForge's local bubblewrap sandbox.
-MCP_REQUEST_TIMEOUT_MS=900000 ./agent/spike/start_trueforge.sh || log 'TrueForge already running or failed to start'
-FLEET_LAB_PARALLEL=2 ./agent/start_fleet_mcp.sh || log 'fleet MCP already running or failed to start'
+log 'installing persistent TrueForge and fleet MCP systemd services'
+install -m 0644 infra/aws/trueforge.service /etc/systemd/system/wavebreak-trueforge.service
+install -m 0644 infra/aws/fleet-mcp.service /etc/systemd/system/wavebreak-fleet-mcp.service
+systemctl daemon-reload
+systemctl enable --now wavebreak-trueforge.service wavebreak-fleet-mcp.service
 wait_port 127.0.0.1 8790 120 || die 'TrueForge did not open :8790 (see agent/spike/trueforge.log)'
 wait_port 127.0.0.1 8792 60 || die 'fleet MCP did not open :8792 (see run/fleet-mcp.log)'
-python3 agent/register.py || log 'agent registration failed; run: python3 agent/register.py'
+if [[ -f agent/spike/.env ]]; then
+.venv/bin/python agent/register.py --register-provider
+else
+  log 'WARNING: agent/spike/.env missing; add TrueFoundry gateway credentials, then register the agent'
+fi
 
 log 'demo status'
 make demo-status
