@@ -84,13 +84,23 @@ def observation(ledger, plan_id, wave, verdict, affected=()):
     )
 
 
-def rehearsed(ledger, plan_id, verdict="pass"):
+def rehearsal_payload(ledger, plan_id, passing=None):
+    """Rehearsal payload; `passing` is the hw_revs that passed (default: every hw_rev of the plan)."""
+    plan = ledger.get_plan(plan_id)
+    revs = sorted({d["hw_rev"] for d in plan.devices.values()})
+    ok = set(revs if passing is None else passing)
+    per_hw = {h: {"verdict": "pass" if h in ok else "fail"} for h in revs}
+    return {"version": plan.version, "hw_revs": revs, "per_hw_rev": per_hw}
+
+
+def rehearsed(ledger, plan_id, verdict="pass", passing=None):
     ledger.set_phase(plan_id, "REHEARSED")
-    return ledger.new_evidence(plan_id, "rehearsal", verdict, {})
+    return ledger.new_evidence(plan_id, "rehearsal", verdict, rehearsal_payload(ledger, plan_id, passing))
 
 
 def wave1_observed(ledger, clock, plan_id, verdict="healthy", affected=()):
     """Phase WAVE_OBSERVED, wave 1 started; returns the wave-1 observation."""
+    ledger.new_evidence(plan_id, "rehearsal", "pass", rehearsal_payload(ledger, plan_id))
     ledger.set_phase(plan_id, "WAVE_OBSERVED")
     start(ledger, clock, plan_id, 1)
     return observation(ledger, plan_id, 1, verdict, affected)
@@ -320,6 +330,82 @@ def test_start_wave2_newer_observation_of_other_wave_does_not_supersede(ledger, 
     ev = wave1_observed(ledger, clock, plan_id)
     observation(ledger, plan_id, 2, "regression", ["B"])
     pc.check_start_wave(ledger, plan_id, 2, ev.evidence_id, clock(), MAX_AGE)
+
+
+def coverage_error(ledger, plan_id, ev, wave=1, clock=None):
+    """Call check_start_wave expecting REHEARSAL_COVERAGE (one matching error event)."""
+    return assert_refused(
+        ledger, plan_id, "start_wave", "REHEARSAL_COVERAGE",
+        pc.check_start_wave, ledger, plan_id, wave, ev.evidence_id, clock(), MAX_AGE,
+    )  # fmt: skip
+
+
+def test_start_wave1_rehearsal_missing_hw_rev_refused(ledger, clock, plan_id):
+    ev = rehearsed(ledger, plan_id, passing=["A"])  # overall verdict pass, B failed in per_hw_rev
+    err = coverage_error(ledger, plan_id, ev, clock=clock)
+    assert "B" in err.message and "rehearse" in err.message and ev.evidence_id in err.message
+
+
+def test_start_wave1_rehearsal_without_per_hw_rev_refused(ledger, clock, plan_id):
+    ledger.set_phase(plan_id, "REHEARSED")
+    ev = ledger.new_evidence(plan_id, "rehearsal", "pass", {})
+    err = coverage_error(ledger, plan_id, ev, clock=clock)
+    assert "A, B" in err.message
+
+
+def test_start_wave1_coverage_ignores_older_rehearsals(ledger, clock, plan_id):
+    older = rehearsed(ledger, plan_id)  # covers A and B, but is superseded
+    ev = ledger.new_evidence(plan_id, "rehearsal", "pass", rehearsal_payload(ledger, plan_id, ["A"]))
+    assert older.evidence_id != ev.evidence_id
+    coverage_error(ledger, plan_id, ev, clock=clock)
+
+
+def test_start_wave1_refusal_precedence_over_coverage(ledger, clock, plan_id):
+    ev = rehearsed(ledger, plan_id, passing=["A"])
+    ledger.set_phase(plan_id, "PLANNED")
+    assert_refused(
+        ledger, plan_id, "start_wave", "BAD_PHASE",
+        pc.check_start_wave, ledger, plan_id, 1, ev.evidence_id, clock(), MAX_AGE,
+    )  # fmt: skip
+
+
+def wave2_setup(ledger, clock, plan_id, rehearsals):
+    """WAVE_OBSERVED with wave 1 started; `rehearsals` is a list of passing-hw_rev lists (oldest first)."""
+    for passing in rehearsals:
+        ledger.new_evidence(plan_id, "rehearsal", "pass", rehearsal_payload(ledger, plan_id, passing))
+    ledger.set_phase(plan_id, "WAVE_OBSERVED")
+    start(ledger, clock, plan_id, 1)
+    return observation(ledger, plan_id, 1, "healthy")
+
+
+def test_start_wave2_rehearsal_missing_hw_rev_refused(ledger, clock, plan_id):
+    ev = wave2_setup(ledger, clock, plan_id, [["A"]])  # wave 2 is d3 A, d4 B, d5 A
+    err = coverage_error(ledger, plan_id, ev, wave=2, clock=clock)
+    assert "B" in err.message and "wave 2" in err.message and "WAVE_OBSERVED" in err.message
+
+
+def test_start_wave2_newer_failed_result_overrides_older_pass(ledger, clock, plan_id):
+    ev = wave2_setup(ledger, clock, plan_id, [["A", "B"], ["A"]])  # newer one reports B as fail
+    coverage_error(ledger, plan_id, ev, wave=2, clock=clock)
+
+
+def test_start_wave2_older_pass_counts_when_newer_covers_other_rev(ledger, clock, plan_id):
+    ledger.new_evidence(plan_id, "rehearsal", "pass", rehearsal_payload(ledger, plan_id, ["B"]))
+    ledger.new_evidence(
+        plan_id, "rehearsal", "pass", {"per_hw_rev": {"A": {"verdict": "pass"}}}
+    )  # B not mentioned: the older B pass stands
+    ledger.set_phase(plan_id, "WAVE_OBSERVED")
+    start(ledger, clock, plan_id, 1)
+    ev = observation(ledger, plan_id, 1, "healthy")
+    pc.check_start_wave(ledger, plan_id, 2, ev.evidence_id, clock(), MAX_AGE)
+    assert_no_errors(ledger, plan_id)
+
+
+def test_start_wave2_without_any_rehearsal_refused(ledger, clock, plan_id):
+    ledger.set_phase(plan_id, "WAVE_OBSERVED")
+    start(ledger, clock, plan_id, 1)
+    ev = observation(ledger, plan_id, 1, "healthy")
+    coverage_error(ledger, plan_id, ev, wave=2, clock=clock)
 
 
 @pytest.mark.parametrize("wave", [0, 3, -1, "1", 1.0, True, None])

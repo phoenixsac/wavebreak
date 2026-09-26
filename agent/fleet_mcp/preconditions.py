@@ -88,6 +88,54 @@ def check_evidence(
     return ev
 
 
+def _plan_hw_revs(plan: Plan, wave: int | None) -> set[str]:
+    """hw_revs of the plan's devices (`wave` 1-based, None for all waves)."""
+    ids = plan.devices if wave is None else plan.waves[wave - 1]
+    return {plan.devices[d]["hw_rev"] for d in ids if d in plan.devices}
+
+
+def _passing_hw_revs(ev: Event) -> set[str]:
+    """hw_revs whose per_hw_rev verdict is `pass` in one rehearsal evidence."""
+    per_hw = ev.payload.get("per_hw_rev") or {}
+    return {h for h, r in per_hw.items() if isinstance(r, dict) and r.get("verdict") == "pass"}
+
+
+def _covered_by_plan_rehearsals(ledger: Ledger, plan_id: str) -> set[str]:
+    """hw_revs whose most recent rehearsal result (over all rehearsal evidence of the plan) is `pass`."""
+    latest: dict[str, bool] = {}
+    for ev in ledger.events(plan_id, types=["rehearsal"]):  # chronological: later overrides earlier
+        for hw, result in (ev.payload.get("per_hw_rev") or {}).items():
+            latest[hw] = isinstance(result, dict) and result.get("verdict") == "pass"
+    return {h for h, ok in latest.items() if ok}
+
+
+def _require_coverage(
+    ledger: Ledger,
+    plan: Plan,
+    tool: str,
+    required: set[str],
+    covered: set[str],
+    wave: int,
+    ev: Event | None,
+) -> None:
+    """Refuse with REHEARSAL_COVERAGE unless every required hw_rev is covered by passing rehearsal."""
+    missing = ", ".join(sorted(required - covered))
+    if not missing:
+        return
+    if ev is not None:
+        msg = (
+            f"rehearsal evidence {ev.evidence_id} does not cover hw_rev(s) {missing} (targets in this plan); "
+            f"run rehearse for {missing} (rehearse without hw_revs covers every hw_rev of the plan) "
+            "and start the wave with the new evidence_id"
+        )
+    else:
+        msg = (
+            f"no passing rehearsal covers hw_rev(s) {missing} for wave {wave}; "
+            f"rehearse can no longer run (phase {plan.phase}): halt and plan a new rollout for them"
+        )
+    raise _refuse(ledger, plan, tool, "REHEARSAL_COVERAGE", msg)
+
+
 def check_start_wave(
     ledger: Ledger, plan_id: str, wave: int, evidence_id: str | None, now: datetime, max_age_s: float
 ) -> tuple[Plan, Event]:
@@ -99,6 +147,10 @@ def check_start_wave(
     if wave == 1:
         _require_phase(ledger, plan, tool, ["REHEARSED"])
         ev = check_evidence(ledger, plan, evidence_id, "rehearsal", None, ["pass"], now, max_age_s, tool)
+        # Rehearse is only allowed before wave 1 starts, so a later wave's uncovered hw_rev would be a
+        # dead end: require the evidence in use to pass every hw_rev of the whole plan (no union).
+        covered = _passing_hw_revs(ev)
+        _require_coverage(ledger, plan, tool, _plan_hw_revs(plan, None), covered, wave, ev)
         return plan, ev
     _require_phase(ledger, plan, tool, ["WAVE_OBSERVED"])
     started = ledger.started_waves(plan_id)
@@ -107,6 +159,9 @@ def check_start_wave(
     if wave - 1 not in started:
         raise _refuse(ledger, plan, tool, "WAVE_ORDER", f"wave {wave - 1} has not been started")
     ev = check_evidence(ledger, plan, evidence_id, "observation", wave - 1, ["healthy"], now, max_age_s, tool)
+    # Held cohorts are not in plan.devices, so only kept devices of this wave need passing rehearsal.
+    covered = _covered_by_plan_rehearsals(ledger, plan.plan_id)
+    _require_coverage(ledger, plan, tool, _plan_hw_revs(plan, wave), covered, wave, None)
     return plan, ev
 
 

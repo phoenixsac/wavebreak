@@ -641,9 +641,7 @@ def test_partial_plan_holds_failed_cohort_and_records_it(tmp_path):
     assert pid != blocked and plan["phase"] == "PLANNED"
     assert [w["by_hw_rev"] for w in plan["waves"]] == [{"A": 1}, {"A": 1}]
     (held,) = plan["held"]
-    assert (
-        held["hw_rev"] == "B" and held["device_ids"] == ["b1", "b2"] and held["evidence_id"] == ev
-    )
+    assert held["hw_rev"] == "B" and held["device_ids"] == ["b1", "b2"] and held["evidence_id"] == ev
     assert "memory_slope" in held["reason"] or "oom" in held["reason"]
     assert {e["id"]: e["reason"] for e in plan["excluded"]} == {
         "b1": f"held: hw_rev B failed rehearsal {ev}",
@@ -749,3 +747,46 @@ def test_partial_plan_still_refused_while_another_plan_runs(tmp_path):
         pid, "rehearsal", "fail", {"version": "v1.2", "per_hw_rev": {"B": {"verdict": "fail", "reasons": []}}}
     )
     refused("ACTIVE_PLAN_EXISTS", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], ev.evidence_id)
+
+
+# 12. rehearsal coverage of start_wave -----------------------------------------------------
+
+
+def test_start_wave_refused_when_rehearsal_skips_a_hw_rev(env):
+    pid = env.fleet.plan_rollout("v1.2", [2, "rest"])["plan_id"]
+    partial = run(env.fleet.rehearse(pid, hw_revs=["A"]))
+    assert partial["verdict"] == "pass" and partial["phase"] == "REHEARSED"
+    err = refused("REHEARSAL_COVERAGE", env.fleet.start_wave, pid, 1, partial["evidence_id"])
+    assert "B" in err.message and "rehearse" in err.message and partial["evidence_id"] in err.message
+    assert env.field.start_wave_calls == []
+    assert error_codes(env, pid) == ["REHEARSAL_COVERAGE"]
+    assert env.ledger.get_plan(pid).phase == "REHEARSED"
+    full = run(env.fleet.rehearse(pid))
+    assert full["verdict"] == "pass"
+    env.fleet.start_wave(pid, 1, full["evidence_id"])
+    assert len(env.field.start_wave_calls) == 1
+
+
+def test_start_wave_coverage_needs_hw_revs_of_later_waves(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2))
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"], stratify_by="hw_rev")["plan_id"]
+    plan = env.ledger.get_plan(pid)
+    wave1_revs = {plan.devices[d]["hw_rev"] for d in plan.waves[0]}
+    later_revs = {plan.devices[d]["hw_rev"] for w in plan.waves[1:] for d in w}
+    assert later_revs - wave1_revs  # a hw_rev that only appears after wave 1
+    covered = sorted(wave1_revs)
+    ev = run(env.fleet.rehearse(pid, hw_revs=covered))
+    err = refused("REHEARSAL_COVERAGE", env.fleet.start_wave, pid, 1, ev["evidence_id"])
+    assert min(later_revs - wave1_revs) in err.message
+    assert env.field.start_wave_calls == []
+
+
+def test_start_wave_partial_plan_needs_only_kept_hw_revs(tmp_path):
+    env, _blocked, ev = blocked_leak_plan(tmp_path)
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"], exclude_hw_revs=["B"], exclusion_evidence_id=ev)[
+        "plan_id"
+    ]
+    rev = run(env.fleet.rehearse(pid, hw_revs=["A"], minutes=5))
+    assert rev["verdict"] == "pass" and "not_rehearsed" not in rev
+    env.fleet.start_wave(pid, 1, rev["evidence_id"])
+    assert {d for call in env.field.start_wave_calls for d in call[-1]} <= {"a1", "a2"}
