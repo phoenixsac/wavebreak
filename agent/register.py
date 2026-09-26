@@ -4,7 +4,7 @@ Usage: python3 agent/register.py [--render-only] [--base-url http://localhost:87
                                  [--provider openai|google-gemini] [--model <provider>/<model name>] [--register-provider]
 
 Model choice (same script locally and on AWS): `--provider` / env `WAVEBREAK_PROVIDER` picks the provider
-(default `google-gemini`, the documented fallback; `openai` is the preferred demo provider), `--model` /
+(default `gateway` when TFY_API_KEY is set, else `google-gemini`; `gateway` is the TrueFoundry AI Gateway, OpenAI compatible; `openai` and `google-gemini` are direct providers, Gemini is the documented fallback); `--tier dev|demo` picks TFY_MODEL_DEV (cheap test model) or TFY_MODEL (demo model), `--model` /
 env `WAVEBREAK_MODEL` overrides the provider default. `--register-provider` first registers the provider in
 TrueForge (`PUT /api/v1/settings/model-providers`) with the key from env `OPENAI_API_KEY` / `GEMINI_API_KEY`
 or from `agent/spike/.env` and the model list from TrueForge's own catalog; the key is never printed.
@@ -18,7 +18,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -29,7 +31,11 @@ PROVIDERS = {
     # provider type -> default model (`<provider>/<configured model name>`), env var holding its key
     "google-gemini": {"model": MODEL, "key_env": "GEMINI_API_KEY"},
     "openai": {"model": "openai/gpt-5-5", "key_env": "OPENAI_API_KEY"},
+    # TrueFoundry AI Gateway (OpenAI compatible), registered in TrueForge as a `custom` provider named
+    # `tfy-gateway`. Env: TFY_BASE_URL, TFY_API_KEY, TFY_MODEL (demo tier), TFY_MODEL_DEV (test tier).
+    "gateway": {"model": "tfy-gateway/openai-polaris-gpt-4o", "key_env": "TFY_API_KEY"},
 }
+GATEWAY_PROVIDER = "tfy-gateway"
 ENV_FILE = HERE / "spike" / ".env"
 APPROVAL_TOOLS = [
     "start_wave",
@@ -54,25 +60,42 @@ def model_params(model: str) -> dict:
     """
     if model.startswith("openai/"):
         return {"reasoning_effort": "medium"}
+    if model.startswith(GATEWAY_PROVIDER + "/"):
+        return {"temperature": 0.1}  # OpenAI-compatible chat models behind the gateway
     params: dict = {"temperature": 0.1}
     if "lite" not in model:
         params["reasoning_effort"] = "medium"
     return params
 
 
-def resolve_model(provider: str, model: str | None) -> str:
-    """Explicit model, else env WAVEBREAK_MODEL, else the provider's default."""
+def resolve_model(provider: str, model: str | None, tier: str = "demo") -> str:
+    """Explicit model, else env WAVEBREAK_MODEL, else the provider's default.
+
+    For the gateway the default follows `tier`: `demo` uses TFY_MODEL, `dev` uses TFY_MODEL_DEV (cheap model for
+    test runs; falls back to TFY_MODEL when unset).
+    """
     if provider not in PROVIDERS:
         raise SystemExit(f"unknown provider {provider!r}; choose one of {', '.join(PROVIDERS)}")
-    return model or os.environ.get("WAVEBREAK_MODEL") or PROVIDERS[provider]["model"]
+    if model or os.environ.get("WAVEBREAK_MODEL"):
+        return model or os.environ["WAVEBREAK_MODEL"]
+    if provider == "gateway":
+        gw = (read_var("TFY_MODEL_DEV") if tier == "dev" else None) or read_var("TFY_MODEL")
+        if gw:
+            return f"{GATEWAY_PROVIDER}/{gateway_model_name(gw)}"
+    return PROVIDERS[provider]["model"]
 
 
-def read_key(provider: str, env: dict[str, str] | None = None, env_file: Path = ENV_FILE) -> str | None:
+def read_key(provider: str, env: dict[str, str] | None = None, env_file: Path | None = None) -> str | None:
     """API key of a provider from the environment or agent/spike/.env (never printed)."""
-    name = PROVIDERS[provider]["key_env"]
+    return read_var(PROVIDERS[provider]["key_env"], env, env_file)
+
+
+def read_var(name: str, env: dict[str, str] | None = None, env_file: Path | None = None) -> str | None:
+    """Variable from the environment, else from agent/spike/.env (leading spaces and quotes tolerated)."""
     env = os.environ if env is None else env
     if env.get(name):
         return env[name]
+    env_file = env_file or ENV_FILE  # looked up at call time so tests can point it elsewhere
     if env_file.is_file():
         for line in env_file.read_text().splitlines():
             key, _, value = line.strip().partition("=")
@@ -81,19 +104,55 @@ def read_key(provider: str, env: dict[str, str] | None = None, env_file: Path = 
     return None
 
 
-def provider_manifest(provider: str, api_key: str, catalog: list[dict]) -> dict:
-    """Body of `PUT /settings/model-providers`; models come from TrueForge's catalog for that provider type."""
+def gateway_model_name(model_id: str) -> str:
+    """TrueForge model name for a gateway model id: `vm-polaris/openai` -> `vm-polaris-openai`."""
+    return re.sub(r"[^a-z0-9]+", "-", model_id.lower()).strip("-")
+
+
+def provider_manifest(
+    provider: str,
+    api_key: str,
+    catalog: list[dict],
+    base_url: str | None = None,
+    model_ids: list[str] | None = None,
+) -> dict:
+    """Body of `PUT /settings/model-providers`.
+
+    Built-in providers take their model list from TrueForge's catalog. `gateway` (TrueFoundry AI Gateway,
+    OpenAI compatible) is a `custom` provider named `tfy-gateway` with `base_url` (`<TFY_BASE_URL>/v1`) and
+    one entry per gateway model id (demo and dev tier).
+    """
+    if provider == "gateway":
+        ids = [m for m in dict.fromkeys(model_ids or []) if m]
+        if not base_url or not ids:
+            raise SystemExit("gateway needs TFY_BASE_URL and TFY_MODEL")
+        models = [
+            {
+                "model_id": m,
+                "name": gateway_model_name(m),
+                "properties": {"context_length": 128000, "max_output_tokens": 16000},
+            }
+            for m in ids
+        ]
+        return {
+            "manifest": {
+                "type": "custom",
+                "name": GATEWAY_PROVIDER,
+                "base_url": gateway_base_url(base_url),
+                "auth": {"api_key": api_key},
+                "models": models,
+            }
+        }
     entry = next((c for c in catalog if c.get("type") == provider), None)
     if entry is None:
         raise SystemExit(f"TrueForge's catalog has no provider type {provider!r}")
-    return {
-        "manifest": {
-            "type": provider,
-            "name": provider,
-            "auth": {"api_key": api_key},
-            "models": entry["models"],
-        }
-    }
+    return {"manifest": {"type": provider, "auth": {"api_key": api_key}, "models": entry["models"]}}
+
+
+def gateway_base_url(base: str) -> str:
+    """OpenAI-compatible base URL of the gateway: `<host>/v1` unless the value already has a path."""
+    base = base.rstrip("/")
+    return base if urllib.parse.urlparse(base).path else base + "/v1"
 
 
 def redact(body: dict, secret: str) -> str:
@@ -161,7 +220,16 @@ def main() -> None:
     ap.add_argument("--base-url", default="http://localhost:8790")
     ap.add_argument("--fleet-url", default="http://127.0.0.1:8792/mcp")
     ap.add_argument("--grafana-url", default="http://127.0.0.1:8000/mcp")
-    ap.add_argument("--provider", default=os.environ.get("WAVEBREAK_PROVIDER", "google-gemini"))
+    default_provider = os.environ.get("WAVEBREAK_PROVIDER") or (
+        "gateway" if read_var("TFY_API_KEY") else "google-gemini"
+    )
+    ap.add_argument("--provider", default=default_provider, choices=sorted(PROVIDERS))
+    ap.add_argument(
+        "--tier",
+        default=os.environ.get("WAVEBREAK_TIER", "demo"),
+        choices=["dev", "demo"],
+        help="gateway model tier: demo = TFY_MODEL, dev = TFY_MODEL_DEV (cheap test runs)",
+    )
     ap.add_argument(
         "--model", default=None, help="TrueForge model id, <provider>/<model name> (default per provider)"
     )
@@ -173,8 +241,9 @@ def main() -> None:
     ap.add_argument("--render-only", action="store_true", help="only write wavebreak-agent.json")
     args = ap.parse_args()
 
-    model = resolve_model(args.provider, args.model)
-    if not model.startswith(args.provider + "/"):
+    model = resolve_model(args.provider, args.model, args.tier)
+    prefix = GATEWAY_PROVIDER if args.provider == "gateway" else args.provider
+    if not model.startswith(prefix + "/"):
         raise SystemExit(f"model {model!r} does not belong to provider {args.provider!r}")
     spec = manifest(model)
     print(f"provider {args.provider}, model {model}")
@@ -192,7 +261,13 @@ def main() -> None:
         status, catalog = call(args.base_url, "GET", "/catalogs/model-providers")
         if status >= 300:
             raise SystemExit(f"cannot read TrueForge's provider catalog: HTTP {status}")
-        body = provider_manifest(args.provider, key, catalog.get("data", []))
+        body = provider_manifest(
+            args.provider,
+            key,
+            catalog.get("data", []),
+            read_var("TFY_BASE_URL"),
+            [read_var("TFY_MODEL"), read_var("TFY_MODEL_DEV")],
+        )
         status, out = call(args.base_url, "PUT", "/settings/model-providers", body)
         print(f"model provider {args.provider}: HTTP {status}", "" if status < 300 else redact(out, key))
         if status >= 300:

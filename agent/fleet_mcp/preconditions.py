@@ -322,7 +322,12 @@ def check_record_decision(ledger: Ledger, plan_id: str, evidence_ids: list[str])
 
 
 def check_exclusion(
-    ledger: Ledger, version: str, exclude_hw_revs: list[str], evidence_id: str | None
+    ledger: Ledger,
+    version: str,
+    exclude_hw_revs: list[str],
+    evidence_id: str | None,
+    now: datetime | None = None,
+    max_age_s: float | None = None,
 ) -> tuple[Event, dict[str, dict]]:
     """Validate a hold: rehearsal evidence of `version` that FAILED for every excluded hw_rev.
 
@@ -344,6 +349,14 @@ def check_exclusion(
             "EVIDENCE_WRONG_VERSION",
             f"{evidence_id} rehearsed {ev.payload.get('version')}, this plan is for {version}",
         )
+    if now is not None and max_age_s is not None:
+        age = (now - parse_ts(ev.ts)).total_seconds()
+        if age > max_age_s:
+            raise PreconditionError(
+                "EVIDENCE_STALE",
+                f"{evidence_id} is {age:.0f}s old, max {max_age_s:.0f}s: a hold needs a fresh failed rehearsal, "
+                "run rehearse for the plan again",
+            )
     per_hw = ev.payload.get("per_hw_rev") or {}
     failed: dict[str, dict] = {}
     for hw in exclude_hw_revs:

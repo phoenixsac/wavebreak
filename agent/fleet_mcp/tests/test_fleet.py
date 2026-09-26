@@ -984,3 +984,33 @@ def test_verify_recovery_definite_failure_beats_missing_metrics(env):
     env.metrics.unavailable = unavailable()
     ver = run(env.fleet.verify_recovery(pid))
     assert ver["verdict"] == "not_recovered" and ver["phase"] == "ROLLED_BACK"
+
+
+def test_state_of_a_finished_plan_says_it_is_history(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2), scenarios={"v1.3": "crash"})
+    pid, _rev = plan_and_rehearse(env, version="v1.3")  # BLOCKED
+    state = env.fleet.get_rollout_state(pid)
+    assert state["phase"] == "BLOCKED" and "history" in state["note"] and "inventory" in state["note"]
+    active = build_fleet(tmp_path / "b", make_devices(2, 2))
+    pid2 = active.fleet.plan_rollout("v1.2")["plan_id"]
+    assert "note" not in active.fleet.get_rollout_state(pid2)
+
+
+def test_hold_evidence_must_be_fresh(tmp_path):
+    env, _blocked, ev = blocked_leak_plan(tmp_path)
+    env.time.advance(env.settings.evidence_max_age_s + 60)
+    err = refused("EVIDENCE_STALE", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], ev)
+    assert "rehearse" in err.message
+    assert env.ledger.latest_plan().phase == "BLOCKED"  # no new plan was created
+
+
+def test_default_state_ignores_finished_plans_but_plan_id_shows_them(tmp_path):
+    env, blocked, ev = blocked_leak_plan(tmp_path)
+    state = env.fleet.get_rollout_state()
+    assert state["plan"] is None and state["next_allowed"] == ["plan_rollout"]
+    assert state["last_plan"]["plan_id"] == blocked and state["last_plan"]["phase"] == "BLOCKED"
+    assert env.fleet.get_rollout_state(blocked)["phase"] == "BLOCKED"
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"], exclude_hw_revs=["B"], exclusion_evidence_id=ev)[
+        "plan_id"
+    ]
+    assert env.fleet.get_rollout_state()["plan_id"] == pid  # an active plan is returned by default

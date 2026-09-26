@@ -109,7 +109,12 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
 
     @mcp.tool(annotations=READ_ONLY)
     def get_rollout_state(
-        plan_id: Annotated[str | None, Field(description="Plan id; default is the latest plan.")] = None,
+        plan_id: Annotated[
+            str | None,
+            Field(
+                description="Plan id; pass it once you have one. Without it only an ACTIVE plan is returned."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Show phase, waves (status, rollout ids), evidence with age and freshness, decisions, approvals, actions, errors, per-device installed versions and the tools allowed now (next_allowed).
         Call it at the start of every phase; it is the source of truth for progress."""

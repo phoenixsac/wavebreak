@@ -23,7 +23,7 @@ from .backends import FieldBackend, LabBackend, MetricsBackend, MetricsUnavailab
 from .bundle_diff import bundle_diff
 from .config import Settings
 from .errors import PreconditionError
-from .ledger import Ledger, Plan, parse_ts
+from .ledger import TERMINAL_PHASES, Ledger, Plan, parse_ts
 from .models import Device, DeviceStats
 from .planner import pick_from_version, plan_waves
 from .preconditions import (
@@ -188,6 +188,27 @@ class Fleet:
         plan = self.ledger.get_plan(plan_id) if plan_id else self.ledger.latest_plan()
         if plan is None:
             return {"plan": None, "message": "no rollout plans yet; call plan_rollout"}
+        if plan_id is None and plan.phase in TERMINAL_PHASES:
+            # Without a plan id only an ACTIVE plan is current. A finished plan is history: showing it in full made
+            # models answer "already done" while the inventory said otherwise.
+            return {
+                "plan": None,
+                "message": (
+                    "no active rollout plan. Call plan_rollout for the requested version if devices are not on it "
+                    f"(the fleet inventory decides). Last plan {plan.plan_id} ({plan.version}, {plan.phase}) is "
+                    "history; pass its plan_id to see it."
+                ),
+                "last_plan": {
+                    "plan_id": plan.plan_id,
+                    "version": plan.version,
+                    "phase": plan.phase,
+                    "held": [
+                        {"hw_rev": h["hw_rev"], "devices": h["device_ids"], "evidence_id": h["evidence_id"]}
+                        for h in plan.held
+                    ],
+                },
+                "next_allowed": ["plan_rollout"],
+            }
         led, pid = self.ledger, plan.plan_id
         started = led.started_waves(pid)
         observations = led.events(pid, types=["observation"])
@@ -226,6 +247,11 @@ class Fleet:
         }
         out["devices"], extra = self._device_rows(plan)
         out.update(extra)
+        if plan.phase in TERMINAL_PHASES:
+            out["note"] = (
+                f"Plan {pid} is finished ({plan.phase}) and is history. The fleet inventory decides what to do: "
+                "if devices are not on the requested version, call plan_rollout for them."
+            )
         if plan.held:
             out["held"] = self._held_rows(plan, extra.get("hawkbit_error") is None)
         return out
@@ -353,7 +379,12 @@ class Fleet:
         hold_ev = failed = None
         if exclude_hw_revs or exclusion_evidence_id:
             hold_ev, failed = check_exclusion(
-                self.ledger, version, list(exclude_hw_revs or []), exclusion_evidence_id
+                self.ledger,
+                version,
+                list(exclude_hw_revs or []),
+                exclusion_evidence_id,
+                self._now(),
+                self.settings.evidence_max_age_s,
             )
         try:
             self.field.distribution_set_id(version)

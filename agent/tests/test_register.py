@@ -55,10 +55,43 @@ def test_read_key_from_env_then_file(tmp_path):
 def test_provider_manifest_from_catalog_and_redaction():
     body = register.provider_manifest("openai", "sk-secret", CATALOG)
     m = body["manifest"]
-    assert m["type"] == "openai" and m["name"] == "openai" and m["models"] == CATALOG[0]["models"]
+    assert m["type"] == "openai" and "name" not in m and m["models"] == CATALOG[0]["models"]
     assert m["auth"] == {"api_key": "sk-secret"}
     assert "sk-secret" not in register.redact({"error": "bad key sk-secret"}, "sk-secret")
     assert "sk-secret" not in register.redact(body, "sk-secret")
     with pytest.raises(SystemExit):
         register.provider_manifest("anthropic", "k", CATALOG)
     json.dumps(body)
+
+
+def test_gateway_provider_is_custom_openai_compatible(monkeypatch):
+    assert register.gateway_model_name("openai-polaris/gpt-4o") == "openai-polaris-gpt-4o"
+    assert register.gateway_base_url("https://gw.example") == "https://gw.example/v1"
+    assert register.gateway_base_url("https://gw.example/api/llm/") == "https://gw.example/api/llm"
+    ids = ["openai-polaris/gpt-4o", "openai-polaris/gpt-4.1-mini", "openai-polaris/gpt-4o", None]
+    body = register.provider_manifest("gateway", "jwt-secret", [], "https://gw.example", ids)
+    m = body["manifest"]
+    assert m["type"] == "custom" and m["name"] == "tfy-gateway" and m["base_url"] == "https://gw.example/v1"
+    assert [(k["model_id"], k["name"]) for k in m["models"]] == [
+        ("openai-polaris/gpt-4o", "openai-polaris-gpt-4o"),
+        ("openai-polaris/gpt-4.1-mini", "openai-polaris-gpt-4-1-mini"),
+    ]
+    assert all(isinstance(k["properties"], dict) for k in m["models"])
+    assert "jwt-secret" not in register.redact(body, "jwt-secret")
+    with pytest.raises(SystemExit):
+        register.provider_manifest("gateway", "k", [], None, [])
+
+
+def test_gateway_tiers(monkeypatch, tmp_path):
+    monkeypatch.delenv("WAVEBREAK_MODEL", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("TFY_MODEL=openai-polaris/gpt-4o\nTFY_MODEL_DEV=openai-polaris/gpt-4.1-mini\n")
+    monkeypatch.setattr(register, "ENV_FILE", env)
+    monkeypatch.delenv("TFY_MODEL", raising=False)
+    monkeypatch.delenv("TFY_MODEL_DEV", raising=False)
+    assert register.resolve_model("gateway", None, "demo") == "tfy-gateway/openai-polaris-gpt-4o"
+    assert register.resolve_model("gateway", None, "dev") == "tfy-gateway/openai-polaris-gpt-4-1-mini"
+    env.write_text("TFY_MODEL=openai-polaris/gpt-4o\n")
+    assert register.resolve_model("gateway", None, "dev") == "tfy-gateway/openai-polaris-gpt-4o"
+    assert register.resolve_model("gateway", "tfy-gateway/x", "dev") == "tfy-gateway/x"
+    assert register.model_params("tfy-gateway/openai-polaris-gpt-4o") == {"temperature": 0.1}

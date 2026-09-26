@@ -75,3 +75,32 @@ def test_is_transient():
     assert driver.is_transient("Request failed (429): quota")
     assert driver.is_transient("503 Service Unavailable")
     assert not driver.is_transient("Tool call failed: PLAN_NOT_FOUND")
+
+
+def test_usage_summary_sums_model_messages():
+    from agent import usage
+
+    events = [
+        {
+            "event": {
+                "type": "model.message",
+                "usage": {"input_tokens": 100, "output_tokens": 10, "cache_read_tokens": 50},
+            }
+        },
+        {"event": {"type": "tool.response"}},
+        {"event": {"type": "model.message", "usage": {"input_tokens": 200, "output_tokens": 20}}},
+        {"event": {"type": "turn.done", "state": {"output": {"usage": {"input_tokens": 999}}}}},
+    ]
+    out = usage.summarize(
+        events, {"metrics": {"total_cost_in_usd": 0.01, "total_duration_ms": 12000, "total_turns": 2}}
+    )
+    assert out == {
+        "llm_calls": 2,
+        "input_tokens": 300,
+        "output_tokens": 30,
+        "cache_read_tokens": 50,
+        "total_tokens": 330,
+        "cost_usd": 0.01,
+        "duration_s": 12,
+        "turns": 2,
+    }
