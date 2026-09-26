@@ -84,10 +84,11 @@ preserved = {
     for key, defaults in preserve_defaults.items()
     if incoming_env.get(key, "") in defaults and previous_env.get(key, "") and previous_env[key] not in defaults
 }
+incoming_lines = env_file.read_text().splitlines()
 if preserved:
     lines = []
     replaced = set()
-    for line in env_file.read_text().splitlines():
+    for line in incoming_lines:
         if line and not line.lstrip().startswith("#") and "=" in line:
             key = line.split("=", 1)[0]
             if key in preserved:
@@ -96,7 +97,7 @@ if preserved:
                 continue
         lines.append(line)
     lines.extend(f"{key}={value}" for key, value in preserved.items() if key not in replaced)
-    env_file.write_text("\n".join(lines) + "\n")
+    incoming_lines = lines
 
 with tempfile.TemporaryDirectory(prefix=".wavebreak-stage-", dir=repo.parent) as temp:
     stage = Path(temp) / "repo"
@@ -110,8 +111,9 @@ with tempfile.TemporaryDirectory(prefix=".wavebreak-stage-", dir=repo.parent) as
             if old.exists() and not new.exists():
                 shutil.copytree(old, new, symlinks=True)
     (stage / ".env").parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(env_file, stage / ".env")
-    os.chmod(stage / ".env", 0o600)
+    staged_env = stage / ".env"
+    staged_env.write_text("\n".join(incoming_lines) + "\n")
+    os.chmod(staged_env, 0o600)
     target_agent_env = stage / "agent/spike/.env"
     target_agent_env.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(agent_env, target_agent_env)
