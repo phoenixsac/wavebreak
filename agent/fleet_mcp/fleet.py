@@ -143,13 +143,18 @@ class Fleet:
         """Requested minutes, or min(2, cap) when not given."""
         return min(DEFAULT_MINUTES, cap) if minutes is None else minutes
 
-    def _approval(self, plan_id: str, tool: str, evidence_id: str, wave: int | None = None) -> None:
-        self.ledger.add_event(
-            plan_id,
-            "approval",
-            {"tool": tool, "approved_via": "harness", "evidence_id": evidence_id},
-            wave=wave,
-        )
+    def _approval(
+        self,
+        plan_id: str,
+        tool: str,
+        evidence_id: str,
+        wave: int | None = None,
+        evidence_summary: str | None = None,
+    ) -> None:
+        payload = {"tool": tool, "approved_via": "harness", "evidence_id": evidence_id}
+        if evidence_summary:
+            payload["evidence_summary"] = evidence_summary[:2000]  # what the operator saw when approving
+        self.ledger.add_event(plan_id, "approval", payload, wave=wave)
 
     # reads -----------------------------------------------------------------
 
@@ -596,12 +601,14 @@ class Fleet:
 
     # start_wave ------------------------------------------------------------
 
-    def start_wave(self, plan_id: str, wave: int, evidence_id: str) -> dict:
+    def start_wave(
+        self, plan_id: str, wave: int, evidence_id: str, evidence_summary: str | None = None
+    ) -> dict:
         """Start one hawkBit rollout for the wave's devices (approval-gated)."""
         plan, _ev = check_start_wave(
             self.ledger, plan_id, wave, evidence_id, self._now(), self.settings.evidence_max_age_s
         )
-        self._approval(plan_id, "start_wave", evidence_id, wave)
+        self._approval(plan_id, "start_wave", evidence_id, wave, evidence_summary)
         device_ids = list(plan.waves[wave - 1])
         res = self._call(
             plan_id, "start_wave", self.field.start_wave, f"{plan_id}-wave{wave}", plan.version, device_ids
@@ -784,12 +791,12 @@ class Fleet:
 
     # halt / rollback / verify ----------------------------------------------
 
-    def halt_rollout(self, plan_id: str, evidence_id: str) -> dict:
+    def halt_rollout(self, plan_id: str, evidence_id: str, evidence_summary: str | None = None) -> dict:
         """Stop every started rollout of the plan (approval-gated)."""
         plan, _ev = check_halt(
             self.ledger, plan_id, evidence_id, self._now(), self.settings.evidence_max_age_s
         )
-        self._approval(plan_id, "halt_rollout", evidence_id)
+        self._approval(plan_id, "halt_rollout", evidence_id, evidence_summary=evidence_summary)
         started = self.ledger.started_waves(plan_id)
         rollout_ids = [p["rollout_id"] for _, p in sorted(started.items())]
         results = self._call(plan_id, "stop_rollouts", self.field.stop_rollouts, rollout_ids)
@@ -811,6 +818,7 @@ class Fleet:
         evidence_id: str,
         cohort: dict | None = None,
         targets: list[str] | None = None,
+        evidence_summary: str | None = None,
     ) -> dict:
         """Assign `to_version` (the plan's from_version) to the affected updated devices (approval-gated)."""
         plan, _ev, resolved = check_rollback(
@@ -823,7 +831,7 @@ class Fleet:
             self._now(),
             self.settings.evidence_max_age_s,
         )
-        self._approval(plan_id, "rollback", evidence_id)
+        self._approval(plan_id, "rollback", evidence_id, evidence_summary=evidence_summary)
         actions: list[dict] = []
         failed: list[dict] = []
         for device_id in resolved:

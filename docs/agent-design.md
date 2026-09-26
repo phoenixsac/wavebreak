@@ -186,11 +186,11 @@ All outputs are summaries (no raw time series). Every call writes an event to th
 | `plan_rollout` | `version`, `waves=[2,5,"rest"]`, `stratify_by="hw_rev"`, `exclude_hw_revs?`, `exclusion_evidence_id?` | `plan_id`, wave → device list, `excluded`, `held` | version exists as distribution set; no active plan (unstarted plans are superseded); holds need failed-rehearsal evidence (§10.1) | no | write (non-destructive) |
 | `rehearse` | `plan_id`, `hw_revs`, `minutes` (≤ lab max) | `evidence_id`, per-hw_rev verdict + metrics (memory slope, restarts, OOM, crash loop, install result) | plan exists | no | write (lab only) |
 | `get_bundle_diff` | `from_version`, `to_version` | changed files + short diff summary | — | no | readOnly |
-| `start_wave` | `plan_id`, `wave`, `evidence_id` | hawkBit rollout id, targets, start time | wave 1: passing rehearsal evidence; wave n: healthy `observe_wave` evidence for wave n-1; evidence fresh (≤ X min) | **yes** | destructive |
+| `start_wave` | `plan_id`, `wave`, `evidence_id`, `evidence_summary` (required) | hawkBit rollout id, targets, start time | wave 1: passing rehearsal evidence; wave n: healthy `observe_wave` evidence for wave n-1; evidence fresh (≤ X min) | **yes** | destructive |
 | `observe_wave` | `plan_id`, `wave`, `minutes` (bounded) | `evidence_id`, updated vs control per hw_rev, install status, verdict hint | wave started | no | readOnly (+ ledger write) |
 | `record_decision` | `plan_id`, `decision`, `rationale`, `evidence_ids[]` | ok | evidence ids exist | no | write |
-| `halt_rollout` | `plan_id`, `evidence_id` | stopped rollouts, pending actions cancelled | regression evidence | **yes** | destructive |
-| `rollback` | `plan_id`, `cohort` or `targets[]`, `to_version`, `evidence_id` | assignment actions created | regression evidence; `to_version` = last known good | **yes** | destructive |
+| `halt_rollout` | `plan_id`, `evidence_id`, `evidence_summary` (required) | stopped rollouts, pending actions cancelled | regression evidence | **yes** | destructive |
+| `rollback` | `plan_id`, `cohort` or `targets[]`, `to_version`, `evidence_id`, `evidence_summary` (required) | assignment actions created | regression evidence; `to_version` = last known good | **yes** | destructive |
 | `verify_recovery` | `plan_id`, `targets[]`, `minutes` | `evidence_id`, recovered yes/no per device | rollback executed | no | readOnly |
 
 Lab calls (`rehearse`) go through the lab controller: create lab devices at the fleet's current version per hw_rev, install the target bundle (fetched read-only from hawkBit), sample, destroy.
@@ -295,7 +295,7 @@ Root-cause hint: shared attribute of affected devices (hw_rev, region, version) 
 ## 13. Human-in-the-loop design
 
 - **Gate:** TrueForge tool approval on `start_wave`, `halt_rollout`, `rollback` (Allow / Deny).
-- **Display:** before each gated call the agent renders a Generative UI evidence card (wave table: devices, hw_rev, status; memory chart per hw_rev; verdict and cause). Gen UI is display only, not the gate.
+- **Display (2026-09-26, A26):** the Allow/Deny prompt itself is the evidence card. `start_wave`, `halt_rollout` and `rollback` have a REQUIRED `evidence_summary` argument (at least 20 characters; blank or trivial text is refused with `BAD_ARGUMENT` before any precondition or action): wave devices, verdict per hw_rev with the key numbers, held cohorts, cause hypothesis. The harness shows the tool arguments in the approval request, and the server stores the text in the `approval` ledger event (`evidence_summary`, first 2000 characters), so the audit trail shows what the operator saw. The agent must call the tool directly; a short Gen UI card or markdown table in the same message is optional. Gen UI is display only, not the gate.
 - **Choices:** `ask_user_questions` for decisions with options (halt only vs halt + roll back; extend soak vs proceed).
 - **Proposed approval semantics (confirm):** approve every wave start, every halt and every rollback. Rehearsal and observation run without approval.
 
@@ -340,7 +340,7 @@ As registered by `agent/register.py` (rendered to `agent/wavebreak-agent.json`).
 }
 ```
 
-Model name is `<provider>/<configured model name>` (the `name` given when registering the provider, not the upstream `model_id`). Skills are git-backed (`type: git`, GitHub/GitLab HTTPS URL, path, ref) and registered under `PUT /api/v1/settings/skills`; the sandbox fetches them from GitHub (allowlisted). Without any sandbox (no bwrap/socat/rg and no Daytona): `sandbox.enabled: false`, drop `skills`, move the playbook into instructions.
+Model is chosen at registration: `agent/register.py --provider openai|google-gemini [--model ...] [--register-provider]` (env `WAVEBREAK_PROVIDER`, `WAVEBREAK_MODEL`). Preferred demo provider OpenAI (default model `openai/gpt-5-5`, strong tool calling; OpenAI models get only `reasoning_effort: medium`, no temperature); documented fallback Google Gemini (`google-gemini/gemini-3-6-flash`). `--register-provider` registers the provider in TrueForge (`PUT /api/v1/settings/model-providers`, models from `GET /api/v1/catalogs/model-providers`) with the key from env `OPENAI_API_KEY` / `GEMINI_API_KEY` or `agent/spike/.env`; the key is never printed. Same script on AWS. Model name is `<provider>/<configured model name>` (the `name` given when registering the provider, not the upstream `model_id`). Skills are git-backed (`type: git`, GitHub/GitLab HTTPS URL, path, ref) and registered under `PUT /api/v1/settings/skills`; the sandbox fetches them from GitHub (allowlisted). Without any sandbox (no bwrap/socat/rg and no Daytona): `sandbox.enabled: false`, drop `skills`, move the playbook into instructions.
 
 ## 15. Instructions
 
@@ -448,6 +448,8 @@ Checks: `make demo-status` shows no rollouts and no lab devices; the ledger has 
 
 Type: `v1.2 is published. Take care of the rollout.`
 
+Every approval prompt below shows the `evidence_summary` argument (verdict per hw_rev, numbers, held cohort, cause): that text is the evidence card.
+
 | Step | Agent action | Expected output | Approval |
 |---|---|---|---|
 | 1 | inventory, `plan_rollout(v1.2)`, `rehearse` (all revs) | rev A **pass**, rev B **fail** (memory slope about 11 MB/min against a 1.0 threshold within the window), overall fail, plan BLOCKED, evidence `ev-A1` | no |
@@ -479,6 +481,8 @@ Type: `v1.4 is published. Take care of the rollout.`
 Checks: `make demo-status` shows all four on v1.4 healthy; hawkBit shows two finished rollouts of 2 targets each. Talking points: stratified waves (one rev A and one rev B in wave 1), waves never cascade automatically, the fix release goes through the same gates.
 
 Not in the scenes (unit-tested, mock backends only): regression on a field wave, `halt_rollout`, `rollback`, `verify_recovery` (architecture.md §4.8). It can be shown by pointing the rehearsal-blind fault at a wave, but the current v1.x releases are all caught in the lab.
+
+**Expected flow if the agent stalls (fallback).** Some models (observed with `gemini-3-5-flash-lite`) end their turn after proposing an action ("Proceeding to start wave 1") instead of calling the gated tool. That is model behaviour, not a server fault: no wave is started and the plan stays REHEARSED / WAVE_OBSERVED. The operator types `proceed`; the agent must then call the tool at once with the same `evidence_id` and `evidence_summary` (instructions require this), and the normal Allow/Deny prompt follows. If the server answers `EVIDENCE_STALE` (evidence older than 15 min), the agent gets fresh evidence (`rehearse` or `observe_wave`) first. With `driver.py`, run `.venv/bin/python agent/driver.py --session <id> "proceed"`.
 
 ### Timings and observed behaviour (2026-09-26 test runs, driver with auto-approve)
 
@@ -560,6 +564,8 @@ SDK notes (programmatic driving; `agent/spike/drive.py` is a working example ove
 | A21 | The driver retries transient provider errors (429 quota, `Cannot connect to API`, 503) with backoff by sending "continue" to the same session; `--auto-approve` is test-only and logs every approval it grants | Free-tier Gemini limits and occasional connection drops ended turns mid-rollout |
 | A22 | Start scripts (`agent/start_fleet_mcp.sh`, `agent/spike/start_trueforge.sh`) refuse to start when the port is taken, create `run/`, and use `.venv/bin/python`; `infra/aws/install.sh` starts both and registers the agent | A second copy silently shares or corrupts state; one script must bring up the demo |
 | A23 | Use a paid Gemini key for the demo | Free tier is capped at 20 requests per model per day: about one scene |
+| A26 | **The approval prompt is the evidence card** (2026-09-26): required `evidence_summary` argument on `start_wave`, `halt_rollout`, `rollback`; recorded in the `approval` event; agent calls the tool directly (fallback: operator replies "proceed") | Two test runs on `gemini-3-5-flash-lite` ended their turn after writing a card and never called the tool; putting the evidence in the gated call makes the pause itself the evidence display and removes the extra turn |
+| A27 | **Model selection in `register.py`** (2026-09-26): `--provider openai\|google-gemini`, `--model`, `--register-provider`; preferred provider OpenAI (`openai/gpt-5-5`), Gemini the documented fallback; the 429/transient backoff stays in the driver | Free-tier Gemini is capped at 20 requests per model per day and the lite model stalls; the same registration script must work locally and on AWS |
 | A24 | **Fail closed** (2026-09-26): verdicts `healthy`, `pass` and `recovered` need positive data. A Prometheus or Loki failure, missing series, missing control or baseline, an unevaluable rehearsal slope or a lab failure yields `inconclusive` with a reason. `start_wave` only accepts `pass` / `healthy`, so inconclusive evidence can not start a wave | Drift C3: a Loki outage counted as zero OOM kills and could turn an OOM regression into `healthy`; evidence integrity must not depend on the monitoring stack being up |
 | A25 | **Rehearsal coverage** (2026-09-26): `start_wave` 1 requires the rehearsal evidence in use to pass every hw_rev of the whole plan (not only wave 1), later waves need a passing result for their hw_revs; refusal code `REHEARSAL_COVERAGE` | Drift C1: `rehearse(hw_revs=[A])` used to allow a wave containing rev B. Whole plan for wave 1 because `rehearse` is refused once wave 1 has started (a later uncovered hw_rev would be a dead end). Held cohorts are not in the plan |
 

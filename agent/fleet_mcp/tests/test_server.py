@@ -65,6 +65,9 @@ def tools_by_name(mcp) -> dict:
     return {t.name: t for t in run(mcp.list_tools())}
 
 
+SUMMARY = "rev A pass (slope 0.01 MB/min, 0 restarts, 0 OOM); rev B held; wave 1 = a1"
+
+
 def call(mcp, name: str, **args) -> dict:
     """Call a tool and return its JSON payload."""
     result = run(mcp.call_tool(name, args))
@@ -127,7 +130,9 @@ def test_full_flow_through_tools(mcp, env):
     pid = plan["plan_id"]
     rev = call(mcp, "rehearse", plan_id=pid)
     assert rev["verdict"] == "pass"
-    started = call(mcp, "start_wave", plan_id=pid, wave=1, evidence_id=rev["evidence_id"])
+    started = call(
+        mcp, "start_wave", plan_id=pid, wave=1, evidence_id=rev["evidence_id"], evidence_summary=SUMMARY
+    )
     assert started["phase"] == "WAVE_RUNNING"
     obs = call(mcp, "observe_wave", plan_id=pid, wave=1, minutes=2)
     assert obs["verdict"] == "healthy"
@@ -148,18 +153,33 @@ def test_full_flow_through_tools(mcp, env):
 
 def test_refusal_surfaces_as_tool_error_with_code(mcp):
     with pytest.raises(ToolError) as exc:
-        run(mcp.call_tool("start_wave", {"plan_id": "plan-nope", "wave": 1, "evidence_id": "ev-x"}))
+        run(
+            mcp.call_tool(
+                "start_wave",
+                {"plan_id": "plan-nope", "wave": 1, "evidence_id": "ev-x", "evidence_summary": SUMMARY},
+            )
+        )
     assert "PLAN_NOT_FOUND" in str(exc.value)
 
 
 def test_refusals_of_other_tools_carry_their_codes(mcp, env):
     pid = call(mcp, "plan_rollout", version="v1.2")["plan_id"]
     cases = [
-        ("start_wave", {"plan_id": pid, "wave": 1, "evidence_id": "ev-x"}, "BAD_PHASE"),
-        ("halt_rollout", {"plan_id": pid, "evidence_id": "ev-x"}, "BAD_PHASE"),
+        (
+            "start_wave",
+            {"plan_id": pid, "wave": 1, "evidence_id": "ev-x", "evidence_summary": SUMMARY},
+            "BAD_PHASE",
+        ),
+        ("halt_rollout", {"plan_id": pid, "evidence_id": "ev-x", "evidence_summary": SUMMARY}, "BAD_PHASE"),
         (
             "rollback",
-            {"plan_id": pid, "to_version": "v1.1", "evidence_id": "ev-x", "targets": ["a1"]},
+            {
+                "plan_id": pid,
+                "to_version": "v1.1",
+                "evidence_id": "ev-x",
+                "targets": ["a1"],
+                "evidence_summary": SUMMARY,
+            },
             "BAD_PHASE",
         ),
         ("observe_wave", {"plan_id": pid, "wave": 1}, "BAD_PHASE"),
@@ -210,3 +230,48 @@ def test_build_fleet_from_env(tmp_path):
     env = {"FLEET_LAB_MOCK": "1", "FLEET_LEDGER_PATH": str(tmp_path / "e.sqlite")}
     fleet = server.build_fleet(env=env)
     assert isinstance(fleet.lab, MockLab) and fleet.settings.ledger_path == env["FLEET_LEDGER_PATH"]
+
+
+# evidence_summary (shown in the approval prompt) ----------------------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(APPROVAL))
+def test_gated_tools_require_evidence_summary_in_schema(mcp, name):
+    schema = tools_by_name(mcp)[name].inputSchema
+    assert "evidence_summary" in schema["required"]
+    assert schema["properties"]["evidence_summary"]["minLength"] == server.MIN_SUMMARY_CHARS
+
+
+@pytest.mark.parametrize("summary", [None, "", "   ", "ok", " short text "])
+def test_start_wave_refuses_missing_or_trivial_summary_and_starts_nothing(mcp, env, summary):
+    pid = call(mcp, "plan_rollout", version="v1.2", waves=[2, "rest"])["plan_id"]
+    rev = call(mcp, "rehearse", plan_id=pid)
+    args = {"plan_id": pid, "wave": 1, "evidence_id": rev["evidence_id"]}
+    if summary is not None:
+        args["evidence_summary"] = summary
+    with pytest.raises(ToolError):
+        run(mcp.call_tool("start_wave", args))
+    assert env.field.start_wave_calls == []
+    assert env.ledger.get_plan(pid).phase == "REHEARSED"
+
+
+def test_summary_is_recorded_with_the_approval(mcp, env):
+    pid = call(mcp, "plan_rollout", version="v1.2", waves=[2, "rest"])["plan_id"]
+    rev = call(mcp, "rehearse", plan_id=pid)
+    call(mcp, "start_wave", plan_id=pid, wave=1, evidence_id=rev["evidence_id"], evidence_summary=SUMMARY)
+    (approval,) = env.ledger.events(pid, types=["approval"])
+    assert approval.payload["evidence_summary"] == SUMMARY and approval.payload["tool"] == "start_wave"
+    state = call(mcp, "get_rollout_state", plan_id=pid)
+    assert state["approvals"][0]["evidence_summary"] == SUMMARY
+
+
+def test_halt_and_rollback_require_summary(mcp, env):
+    pid = call(mcp, "plan_rollout", version="v1.2")["plan_id"]
+    for name, args in (
+        ("halt_rollout", {"plan_id": pid, "evidence_id": "ev-x"}),
+        ("rollback", {"plan_id": pid, "to_version": "v1.1", "evidence_id": "ev-x", "targets": ["a1"]}),
+    ):
+        with pytest.raises(ToolError) as exc:
+            run(mcp.call_tool(name, args))
+        assert "evidence_summary" in str(exc.value)
+    assert env.field.stop_calls == []

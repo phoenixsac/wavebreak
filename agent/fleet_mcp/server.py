@@ -42,6 +42,31 @@ EvidenceId = Annotated[
 ]
 
 
+MIN_SUMMARY_CHARS = 20
+EvidenceSummary = Annotated[
+    str,
+    Field(
+        min_length=MIN_SUMMARY_CHARS,
+        description=(
+            "REQUIRED. Evidence summary the operator reads in the Allow/Deny prompt: verdict per hw_rev, "
+            "key numbers (memory slope, restarts, OOM kills), the wave devices, held cohorts, and the "
+            "cause hypothesis. Plain text, a few lines."
+        ),
+    ),
+]
+
+
+def _summary(text: str | None) -> str:
+    """The evidence summary must say something; blank or trivial text is refused."""
+    text = (text or "").strip()
+    if len(text) < MIN_SUMMARY_CHARS:
+        raise ToolError(
+            f"BAD_ARGUMENT: evidence_summary is required (at least {MIN_SUMMARY_CHARS} characters): "
+            "verdict per hw_rev, key numbers and cause, for the operator's approval prompt"
+        )
+    return text
+
+
 def build_fleet(settings: Settings | None = None, env: Mapping[str, str] | None = None) -> Fleet:
     """Wire the real backends (or the mock lab when `settings.lab_mock`) into a Fleet. No I/O happens here."""
     settings = settings or Settings.from_env(env)
@@ -165,11 +190,12 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
                 description="Wave 1: latest passing rehearsal evidence. Wave n>1: latest healthy observation of wave n-1."
             ),
         ],
+        evidence_summary: EvidenceSummary,
     ) -> dict[str, Any]:
         """Start the hawkBit rollout for one wave; the evidence must be the latest of its kind, passing and fresh, and the phase REHEARSED (wave 1) or WAVE_OBSERVED (wave n>1).
-        Requires human approval; irreversible for the field devices. Returns the rollout id and targets; next step is observe_wave."""
+        Requires human approval; irreversible for the field devices. Call it directly (do not stop after writing a card): `evidence_summary` is what the operator reads in the approval prompt. Returns the rollout id and targets; next step is observe_wave."""
         try:
-            return fleet.start_wave(plan_id, wave, evidence_id)
+            return fleet.start_wave(plan_id, wave, evidence_id, _summary(evidence_summary))
         except PreconditionError as exc:
             raise _refusal(exc) from exc
 
@@ -209,11 +235,12 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
     def halt_rollout(
         plan_id: PlanId,
         evidence_id: Annotated[str, Field(description="Latest regression observation of the latest wave.")],
+        evidence_summary: EvidenceSummary,
     ) -> dict[str, Any]:
         """Stop all started hawkBit rollouts of the plan; needs phase WAVE_OBSERVED and fresh regression evidence of the latest wave.
         Requires human approval; irreversible for the field devices. Returns the stopped rollouts; next step is rollback of the affected cohort."""
         try:
-            return fleet.halt_rollout(plan_id, evidence_id)
+            return fleet.halt_rollout(plan_id, evidence_id, _summary(evidence_summary))
         except PreconditionError as exc:
             raise _refusal(exc) from exc
 
@@ -224,6 +251,7 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
         evidence_id: Annotated[
             str, Field(description="Regression observation used to halt, or a newer one.")
         ],
+        evidence_summary: EvidenceSummary,
         cohort: Annotated[
             dict[str, str] | None,
             Field(
@@ -237,7 +265,9 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
         """Assign the last known good version to the affected updated devices; needs phase HALTED, fresh regression evidence, and targets that are updated devices of an affected hw_rev.
         Requires human approval; irreversible for the field devices. Returns per-device assignments; next step is verify_recovery."""
         try:
-            return fleet.rollback(plan_id, to_version, evidence_id, cohort, targets)
+            return fleet.rollback(
+                plan_id, to_version, evidence_id, cohort, targets, _summary(evidence_summary)
+            )
         except PreconditionError as exc:
             raise _refusal(exc) from exc
 
