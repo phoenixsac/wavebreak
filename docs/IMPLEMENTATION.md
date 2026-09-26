@@ -111,7 +111,7 @@ STATUS: IN PROGRESS
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
 | T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | done | smoke | Provisioned dashboard API lists five panels; Grafana PromQL and Loki LogQL accepted the panel queries. |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
-| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | parked | — | Optional agent/MCP authentication; not required for the human-facing dashboard MVP. |
+| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | orch | T10.1 | done | smoke | `make grafana-sa` rotated the token twice, kept one Viewer service account/token, authenticated with the stored token, and restarted mcp-grafana both times. |
 
 ### M11 — wavebreak_clients
 
@@ -136,7 +136,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Repeated twice against live services in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Hard deadline 175s. |
-| T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | todo | — | |
+| T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | done | smoke | `make grafana-sa` creates/reuses a Viewer account, rotates and stores its token, and recreates mcp-grafana with the token. |
 | T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | todo | — | |
 | T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | todo | — | `infra/aws/install.sh` was not present at review start; inspect repository state and record outcome. |
 | T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | todo | — | |
@@ -178,3 +178,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex build | Reconciled T6.2, completed Makefile/env coverage, and parked optional Grafana SA + agent-side lab client tasks outside the local MVP |
 | 2026-09-26 | Codex build | Final consistency pass: lint/compile/config/API checks passed; marked container MVP complete (T12.5) |
 | 2026-09-26 | Codex follow-up | Added repeatable lite demo reset; two live runs completed in 22s and 42s (T13.1) |
+| 2026-09-26 | Codex follow-up | Added idempotent Grafana Viewer token rotation and restarted mcp-grafana with the stored token (T10.4, T13.2) |
