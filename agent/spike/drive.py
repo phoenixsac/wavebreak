@@ -1,4 +1,5 @@
 """Spike driver: create agent/session, run turns over HTTP+SSE, print events with timestamps."""
+
 import json
 import sys
 import time
@@ -41,8 +42,12 @@ def create_session(agent_name: str) -> str:
 def run_turn(sid: str, items: list[dict], timeout: float = 900) -> list[dict]:
     """Stream a turn; return events. Stream ends at turn.done or when it pauses."""
     events = []
-    with httpx.stream("POST", f"{BASE}/sessions/{sid}/turns", json={"input": items, "stream": True},
-                      timeout=httpx.Timeout(timeout, connect=10)) as r:
+    with httpx.stream(
+        "POST",
+        f"{BASE}/sessions/{sid}/turns",
+        json={"input": items, "stream": True},
+        timeout=httpx.Timeout(timeout, connect=10),
+    ) as r:
         print(ts(), "turn http", r.status_code)
         if r.status_code != 200:
             print(r.read().decode()[:500])

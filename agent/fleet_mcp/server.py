@@ -53,7 +53,9 @@ def build_fleet(settings: Settings | None = None, env: Mapping[str, str] | None 
     metrics = PromBackend(Prometheus(settings.prometheus_url), Loki(settings.loki_url))
     ledger = Ledger(settings.ledger_path)
     if not settings.lab_mock:
-        return Fleet(settings, ledger, field, metrics, HttpLab(settings.lab_url, settings.lab_api_token))
+        return Fleet(
+            settings, ledger, field, metrics, HttpLab(settings.lab_url, settings.lab_api_token, timeout=120)
+        )
     scale = float(e.get("FLEET_LAB_MOCK_TIME_SCALE") or 1)
     if scale <= 0:
         raise ValueError("FLEET_LAB_MOCK_TIME_SCALE must be positive")

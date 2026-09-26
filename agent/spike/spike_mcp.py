@@ -1,4 +1,5 @@
 """Throwaway MCP server for TrueForge spike: one read tool, one unannotated write tool, one blocking tool."""
+
 import asyncio
 import time
 from pathlib import Path
