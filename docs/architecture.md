@@ -376,7 +376,7 @@ Auth: HTTP basic (user from `.env`).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/install` | POST | Upload bundle (tar body), returns install result |
+| `/install` | POST | Raw tar body, optional `X-Sha256` header; 200 ok or 422 failed, body = install result |
 | `/status` | GET | fw_version, slot, unit state, restarts, last install result |
 
 Auth: `Authorization: Bearer <LAB_DEVICE_TOKEN>`. Port 8081.
