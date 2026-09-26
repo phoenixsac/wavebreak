@@ -1,0 +1,18 @@
+[Unit]
+Description=Wavebreak TrueForge agent runtime
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ubuntu/wavebreak/agent/spike
+EnvironmentFile=/home/ubuntu/wavebreak/agent/spike/.env
+Environment=OUTBOUND_URL_ALLOWED_HOSTS=[\"127.0.0.1\",\"localhost\"]
+Environment=MCP_REQUEST_TIMEOUT_MS=900000
+ExecStart=/usr/bin/npx --yes @truefoundry/trueforge@latest --port 8790
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

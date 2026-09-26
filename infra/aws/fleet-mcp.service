@@ -1,0 +1,19 @@
+[Unit]
+Description=Wavebreak fleet MCP server
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ubuntu/wavebreak
+EnvironmentFile=/home/ubuntu/wavebreak/.env
+Environment=PYTHONPATH=/home/ubuntu/wavebreak
+Environment=FLEET_LAB_PARALLEL=2
+Environment=FLEET_LEDGER_PATH=/home/ubuntu/wavebreak/run/fleet-ledger.sqlite
+ExecStart=/home/ubuntu/wavebreak/.venv/bin/python -m agent.fleet_mcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
