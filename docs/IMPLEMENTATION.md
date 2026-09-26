@@ -5,7 +5,7 @@
 - Instructions: [docs/prompts/overnight.md](prompts/overnight.md)
 - Design source of truth: [docs/architecture.md](architecture.md)
 
-STATUS: COMPLETE
+STATUS: IN PROGRESS
 
 ## How to use this file (loop runs)
 
@@ -131,6 +131,16 @@ STATUS: COMPLETE
 | T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
 | T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | done | smoke | Runbook commands, Compose profiles, tracker statuses, and live service state checked; lab API, hawkBit API/UI, and five-panel Grafana dashboard respond. No field or lab device containers left running. |
 
+### M13 — Repeatable demo operations
+
+| ID | Task | Owner | Depends | Status | Verif | Notes |
+|----|------|-------|---------|--------|-------|-------|
+| T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Repeated twice against live services in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Hard deadline 175s. |
+| T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | todo | — | |
+| T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | todo | — | |
+| T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | todo | — | `infra/aws/install.sh` was not present at review start; inspect repository state and record outcome. |
+| T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | todo | — | |
+
 ## Needs human
 
 | ID | Item | Command | Status |
@@ -167,3 +177,4 @@ STATUS: COMPLETE
 | 2026-09-26 | Codex build | Added separate optional hawkBit UI 1.1.0; smoke-tested lite opt-in at :8081 with a 384 MiB heap cap (T2.9) |
 | 2026-09-26 | Codex build | Reconciled T6.2, completed Makefile/env coverage, and parked optional Grafana SA + agent-side lab client tasks outside the local MVP |
 | 2026-09-26 | Codex build | Final consistency pass: lint/compile/config/API checks passed; marked container MVP complete (T12.5) |
+| 2026-09-26 | Codex follow-up | Added repeatable lite demo reset; two live runs completed in 22s and 42s (T13.1) |

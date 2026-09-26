@@ -13,7 +13,7 @@ COMPOSE_PROFILES := $(if $(filter full,$(PROFILE)),--profile full,) $(if $(filte
 COMPOSE := docker compose --env-file $(ENV_FILE) -f platform/docker-compose.yml $(COMPOSE_PROFILES)
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: view up down reset ps hawkbit-config bundles publish fleet fleet-down fleet-status seed lab \
+.PHONY: view up down reset ps hawkbit-config bundles publish fleet fleet-down fleet-status seed lab demo-reset \
         e2e test lint all
 
 view:
@@ -63,6 +63,9 @@ lab:
 	@docker image inspect wavebreak-device:local >/dev/null 2>&1 || docker build -f sim/device/Dockerfile -t wavebreak-device:local .
 	$(COMPOSE) --profile lab up -d --build lab-controller
 	./scripts/wait-http.sh http://localhost:$(LAB_CONTROLLER_PORT)/healthz 120
+
+demo-reset:
+	./scripts/demo-reset.sh
 
 e2e:
 	./scripts/e2e.sh
