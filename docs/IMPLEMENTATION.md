@@ -39,7 +39,7 @@ STATUS: IN PROGRESS
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | done | static | loki -verify-config rc 0 (3.5.0) |
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
 | T2.7 | hawkBit tenant bootstrap script `scripts/hawkbit-config.sh`: enable gateway-token auth, set token from `.env`, set polling interval | orch | T2.1 | done | smoke | Verified against running server. Min polling 30s by default; lowered with -Dhawkbit.controller.minPollingTime=00:00:05, 10s accepted |
-| T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | in-progress | — | Running image has no H2 database files; `PROFILES=h2` uses ephemeral in-memory state unless a file URL is configured. |
+| T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | done | smoke | Configured file-backed H2 in the writable artifact volume with `MODE=LEGACY`; republished v1.0–v1.4, restarted hawkBit, and verified all five distribution sets remained. |
 
 ### M3 — Bundles + publish
 
@@ -159,3 +159,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Verified Makefile fleet and seed integration (T7.4) |
 | 2026-09-26 | Codex MVP | Added hawkBit Management API client; verified a ready one-group rollout stays unstarted (T11.1) |
 | 2026-09-26 | Codex MVP | Ran v1.2 OOM → v1.1 recovery e2e on edge-001; fleet cleaned up (T6.7) |
+| 2026-09-26 | Codex MVP | Persisted lite H2, republished releases, restarted hawkBit, and verified v1.0–v1.4 survived (T2.8) |

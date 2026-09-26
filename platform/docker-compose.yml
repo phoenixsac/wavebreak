@@ -1,5 +1,5 @@
 # Wavebreak backend zone. Variables come from ../.env (see .env.example).
-# PROFILE=lite: hawkBit on embedded H2. PROFILE=full: `--profile full` adds MySQL.
+# PROFILE=lite: file-backed H2 in the artifact volume. PROFILE=full: `--profile full` adds MySQL.
 # `--profile mcp` adds the hawkBit MCP server (needs scripts/fetch-hawkbit-mcp.sh first).
 name: wavebreak
 
@@ -13,6 +13,7 @@ networks:
 
 volumes:
   hawkbit-artifacts:
+    # Lite H2 database lives alongside artifacts in this persistent volume.
   hawkbit-db:
   prometheus-data:
   loki-data:
