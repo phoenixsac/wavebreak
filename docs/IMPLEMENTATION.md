@@ -34,7 +34,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | done | static | Recorded in architecture.md §5; image inspected; endpoint shapes TODO(verify) in S1 |
 | T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | done | static | hawkbit-mcp-server 1.1.0 jar on Maven Central (standalone, streamable HTTP, 8081). Run on hawkBit image JRE, host port 8082. Fetch script + compose service in T2.3 |
-| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | done | smoke (hawkBit only) | Networks backend, wavebreak_field, wavebreak_lab (internal). Profiles full (MySQL), mcp (jar). hawkBit booted lite (414 MiB), lab user read-only verified (GET 200, POST 403). Image has no curl, no actuator: wait on /v3/api-docs |
+| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | done | smoke | Networks backend, wavebreak_field, wavebreak_lab (internal). Profiles full (MySQL), mcp (jar). hawkBit booted lite; lab user can read software modules and download artifact, target creation returns 403. Image has no curl, no actuator: wait on /v3/api-docs |
 | T2.4 | `platform/prometheus/prometheus.yml` (self-scrape only; devices push via remote_write) + `promtool check config` | scaffolder | T2.3 | done | static | promtool check config SUCCESS |
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | done | static | loki -verify-config rc 0 (3.5.0) |
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
@@ -69,7 +69,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | done | static | architecture.md §5 Fluent Bit table; v5.1.2 apt repo |
-| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | static | Present in commit cd5fe0d; image has not been built |
+| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | smoke | Rebuilt `wavebreak-device:local` from current source; systemd container boot verified in T6.5 |
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | smoke | Latest image boot: identity, inference-app, node_exporter, ota-agent active; e2e exercised OOM restart and restart metric. |
 | T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | smoke | Lite fleet metrics reached Prometheus with device/fw labels and device logs reached Loki; Fluent Bit restarted on OTA label changes. |
 | T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Rebuilt `wavebreak-device:local` from current source. Fresh systemd container booted with identity, app, node_exporter, and local ota-agent active; labels correct and `WAVEBREAK_FRAME_SCALE=0.7` persisted. Removed smoke container. |
@@ -99,9 +99,9 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T9.1 | Minimal container lab API: create devices at requested version/revision, install read-only hawkBit artifacts, summary, list, delete; token auth and memory/OOM reporting | orch | T5.3, T7.2 | in-progress | — | Container runtime only; agent sees controller API, controller owns Docker socket |
-| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | orch | T9.1, T2.3 | todo | — | |
-| T9.3 | Smoke S5: create one lab device, install a bundle fetched from hawkBit, read summary; tear down | verifier | T9.2, T3.3 | todo | — | |
+| T9.1 | Minimal container lab API: create devices at requested version/revision, install read-only hawkBit artifacts, summary, list, delete; token auth and memory/OOM reporting | orch | T5.3, T7.2 | done | smoke | Created rev-B lab-001 at v1.1 from a verified hawkBit download; summary showed active unit, 11.9 MB app cgroup memory, 0 restarts/OOMs; list and delete worked. |
+| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | orch | T9.1, T2.3 | done | smoke | `make lab PROFILE=lite` built and started controller; `/healthz` returned ready. Controller owns Docker socket; device isolated on `wavebreak_lab`. |
+| T9.3 | Smoke S5: create one lab device, install a bundle fetched from hawkBit, read summary; tear down | verifier | T9.2, T3.3 | done | smoke | Live hawkBit lab user reads module/artifact (200) but cannot create target (403); one rev-B device installed v1.1 and was removed after summary. |
 
 ### M10 — Grafana + MCP
 
@@ -161,3 +161,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Ran v1.2 OOM → v1.1 recovery e2e on edge-001; fleet cleaned up (T6.7) |
 | 2026-09-26 | Codex MVP | Persisted lite H2, republished releases, restarted hawkBit, and verified v1.0–v1.4 survived (T2.8) |
 | 2026-09-26 | Codex MVP | Rebuilt latest device image, verified frame-scale env and quick boot, removed smoke container (T6.5) |
+| 2026-09-26 | Codex build | Completed and smoke-tested isolated lab controller with read-only hawkBit artifact access; deleted lab device (T9.1–T9.3) |

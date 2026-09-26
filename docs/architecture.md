@@ -329,12 +329,12 @@ hawkBit server facts (T2.1; image inspected, rest read from docs):
 | Image | `hawkbit/hawkbit-update-server:1.1.0` (monolith: UI, DDI, Management API; `PROFILES=h2` default). Split images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
 | Heap | entrypoint uses `X_MS`, `X_MX`, `XX_MAX_METASPACE_SIZE`, `XX_METASPACE_SIZE`, `JAVA_OPTS` env (defaults 768m heap, 250m metaspace) |
 | DB (full) | official compose `docker/mysql/docker-compose-monolith-mysql.yml`: `PROFILES=mysql`, `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` |
-| Users | default admin/admin; `hawkbit.server.im.users[n].username/password/permissions` (e.g. `READ_REPOSITORY,READ_TARGET` for the read-only lab user) |
+| Users | default admin/admin; lab uses `hawkbit.security.user.lab.{tenant,password,permissions}` with target, distribution-set, and software-module read authorities |
 | Tenant | `DEFAULT` |
 | Tenant configs | `PUT /rest/v1/system/configs/{key}` body `{"value": ...}`; keys `authentication.gatewaytoken.enabled`, `authentication.gatewaytoken.key`, `authentication.targettoken.enabled`, `pollingTime` (`HH:MM:SS`) |
 | Artifacts | `org.eclipse.hawkbit.repository.file.path` (default `./artifactrepo`, i.e. `/app/artifactrepo`) |
 | OpenAPI | `http://<host>:8080/swagger-ui/index.html`, JSON `/v3/api-docs` (verified; no `/actuator/health`, image has no curl) |
-| Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab user with `READ_REPOSITORY,READ_TARGET`: GET 200, POST 403 |
+| Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab can list software modules and download artifacts; target creation returns 403 |
 | Polling (verified) | tenant `pollingTime` min is 30s unless `-Dhawkbit.controller.minPollingTime=00:00:05`; tenant config path is `/rest/v1/system/configs/{key}` |
 
 hawkBit MCP server (T2.2): standalone Spring Boot jar `org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0` on Maven Central (54 MB, no build needed). Runs on the JRE of the hawkBit image (`java -jar`). Properties: `server.port=8081`, `spring.ai.mcp.server.protocol=STREAMABLE` (path `/mcp`, TODO(verify) S1), `hawkbit.mcp.mgmt-url=${HAWKBIT_URL}`. Clients send their own hawkBit credentials as `Authorization: Basic ...`; the server validates them against hawkBit and forwards. Operation switches: `hawkbit.mcp.operations.delete-enabled`, `hawkbit.mcp.operations.rollouts.start-enabled`, `...approve-enabled`. Tools cover targets, target filters, software modules, distribution sets, rollouts (create/start/pause/resume/stop/approve/deny/retry/trigger-next-group), actions.
@@ -551,6 +551,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D24 | Device identity setup creates temporary files under `/run/wavebreak` and removes them with an exit trap | The `/tmp` file was missing during an early systemd boot; moving both files into the unit's runtime directory made identity initialization reliable | 2026-09-26 |
 | D25 | Fleet `frame_scale` is passed as `WAVEBREAK_FRAME_SCALE` into the device environment | Lets the profile control simulated frame allocation rate; identity setup must preserve the exact app variable name | 2026-09-26 |
 | D26 | E2E restart checks take the maximum over matching Prometheus series and scope the baseline to the installed firmware version | Remote-write retains series across firmware label changes and older versions can remain visible | 2026-09-26 |
+| D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
 
 ---
 
@@ -569,7 +570,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | Q9 | Current hawkBit image names (monolith vs split DDI/Mgmt images) | **Resolved** T2.1: monolith `hawkbit/hawkbit-update-server:1.1.0` |
 | Q10 | Fluent Bit `prometheus_remote_write` output: supports adding static labels? | **Resolved** T6.1: `add_label <name> <value>`, repeatable |
 | Q11 | mcp-grafana network transport flag and port | **Resolved** T10.3: image `grafana/mcp-grafana`, `-t streamable-http -address 0.0.0.0:8000`, path `/mcp`, env `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`, `--disable-write`; optional `MCP_GRAFANA_SERVER_TOKEN` for caller auth |
-| Q12 | Read-only hawkBit user for the lab controller (permission config) | T2.1 docs: `hawkbit.server.im.users[1].permissions=READ_REPOSITORY,READ_TARGET`; TODO(verify) S1 |
+| Q12 | Read-only hawkBit user for the lab controller (permission config) | **Resolved** T9.3: lab user reads bundle metadata and artifact download; target creation returns 403. Use granular authorities in D27 |
 | Q13 | Can the host reach containers on a Docker `internal: true` network | TODO(verify) T9.2 |
 | Q14 | AWS CLI syntax for nested virtualization on M8i | **Resolved** T12.1 (docs read): `aws ec2 run-instances --cpu-options NestedVirtualization=enabled`, AWS CLI v2 >= 2.36; AMI `resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id` (gp2 path also exists). AWS CLI not installed locally |
 
