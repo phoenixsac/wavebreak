@@ -13,7 +13,7 @@ COMPOSE_PROFILES := $(if $(filter full,$(PROFILE)),--profile full,) $(if $(filte
 COMPOSE := docker compose --env-file $(ENV_FILE) -f platform/docker-compose.yml $(COMPOSE_PROFILES)
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: view up down reset ps hawkbit-config bundles publish fleet fleet-down fleet-status seed lab demo-reset grafana-sa \
+.PHONY: view up down reset ps hawkbit-config bundles publish fleet fleet-down fleet-status seed lab demo-reset demo-status grafana-sa \
         e2e test lint all
 
 view:
@@ -69,6 +69,9 @@ demo-reset:
 
 grafana-sa:
 	./scripts/grafana-sa.sh
+
+demo-status:
+	./scripts/demo-status.sh
 
 e2e:
 	./scripts/e2e.sh

@@ -137,7 +137,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Repeated twice against live services in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Hard deadline 175s. |
 | T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | done | smoke | `make grafana-sa` creates/reuses a Viewer account, rotates and stores its token, and recreates mcp-grafana with the token. |
-| T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | todo | — | |
+| T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | done | smoke | Live output grouped versions by hw_rev, showed four healthy v1.1 devices, no active rollouts/lab devices, and local service URLs. |
 | T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | todo | — | `infra/aws/install.sh` was not present at review start; inspect repository state and record outcome. |
 | T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | todo | — | |
 
@@ -179,3 +179,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex build | Final consistency pass: lint/compile/config/API checks passed; marked container MVP complete (T12.5) |
 | 2026-09-26 | Codex follow-up | Added repeatable lite demo reset; two live runs completed in 22s and 42s (T13.1) |
 | 2026-09-26 | Codex follow-up | Added idempotent Grafana Viewer token rotation and restarted mcp-grafana with the stored token (T10.4, T13.2) |
+| 2026-09-26 | Codex follow-up | Added `make demo-status`; verified the live v1.1 fleet, rollout/lab state, and service URLs (T13.3) |
