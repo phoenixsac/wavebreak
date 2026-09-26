@@ -72,7 +72,7 @@ STATUS: IN PROGRESS
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | static | Units and helper scripts present in cd5fe0d; runtime behavior unverified |
 | T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
 | T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Image built. Container booted, identity + inference-app + node_exporter active, labels v1.0 correct. Fixed identity temp-file handling; OTA local API was confirmed to require LAB_DEVICE_TOKEN; telemetry-off correctly skips Fluent Bit. |
-| T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | todo | — | |
+| T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | done | smoke | Lite fleet sent device/fw_version-labeled app metrics to Prometheus and logs to Loki. During e2e, edge-001 metrics changed through v1.2 and v1.1 after installs; fleet was removed afterward. |
 | T6.7 | E2E: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | in-progress | — | Implement scripts/e2e.sh and run against lite fleet |
 
 ### M7 — Container runtime + fleet launcher + seed
