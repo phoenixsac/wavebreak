@@ -200,6 +200,11 @@ make up PROFILE=full RUNTIME=container
 make bundles publish
 make fleet PROFILE=full RUNTIME=container
 make demo-reset PROFILE=full
+# Grafana keeps its initial admin password in its persistent volume. Keep it
+# aligned when the generated or synced .env password changes between runs.
+GRAFANA_PASSWORD=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env | head -1)
+docker compose --env-file .env -f platform/docker-compose.yml --profile full \
+  exec -T grafana grafana cli admin reset-admin-password "$GRAFANA_PASSWORD" >/dev/null
 make grafana-sa
 
 # The images above were built from this source. Record their inputs so later
