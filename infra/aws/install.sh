@@ -22,7 +22,7 @@ REPO_DIR=${REPO_DIR:-${SOURCE_REPO:-/opt/wavebreak}}
 log 'installing Docker Engine, Compose, Node.js 22, and project tools'
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y ca-certificates curl gnupg git make jq socat ripgrep \
+apt-get install -y ca-certificates curl gnupg git make jq socat ripgrep bubblewrap \
   python3 python3-yaml python3-venv python3-pip
 
 if ! dpkg-query -W -f='${db:Status-Status}' docker-ce 2>/dev/null | grep -qx installed; then

@@ -23,7 +23,7 @@ sudo env REPO_DIR=/home/ubuntu/wavebreak bash /home/ubuntu/wavebreak/infra/aws/i
 
 The first sync stages only the committed archive and the two secret files. The installer provisions Docker Compose, Node.js 22, `socat`, `ripgrep`, and Python tooling; starts `PROFILE=full RUNTIME=container`; publishes bundles; launches the 20-device fleet; resets it to healthy v1.1; provisions Grafana's read-only account; and enables the two systemd services. The instance's `~/wavebreak/.env` is kept mode 0600. Full startup and registration can take several minutes.
 
-The TrueForge service reads `agent/spike/.env`, listens on 8790, and sets `OUTBOUND_URL_ALLOWED_HOSTS` for loopback MCP access plus `MCP_REQUEST_TIMEOUT_MS=900000`. The fleet MCP service listens on 8792, reads the repo `.env`, and uses `FLEET_LAB_PARALLEL=2`. Both restart after failure and at boot. `socat` and `ripgrep` are installed for TrueForge's local sandbox.
+The TrueForge service reads `agent/spike/.env`, listens on 8790, and sets `OUTBOUND_URL_ALLOWED_HOSTS` for loopback MCP access plus `MCP_REQUEST_TIMEOUT_MS=900000`. The fleet MCP service listens on 8792, reads the repo `.env`, and uses `FLEET_LAB_PARALLEL=2`. Both restart after failure and at boot. `socat`, `ripgrep` and `bubblewrap` are installed for TrueForge's local sandbox (the service runs as root, where `bwrap` works; on Ubuntu 24.04 unprivileged users are blocked by AppArmor).
 
 ## Update and registration workflow
 
@@ -69,3 +69,15 @@ ssh -i ~/.ssh/wavebreak-key.pem -N \
 ```
 
 Open Grafana at `http://localhost:13000` (user `admin`, password in the instance `.env`), TrueForge at `http://localhost:18790`, hawkBit API at `http://localhost:18080`, and hawkBit UI at `http://localhost:18081` (user `admin`, password in `.env`). The SSH tunnel is long-running; use a second WSL terminal for commands.
+
+## Deployment log (2026-09-26)
+
+Verified on `ubuntu@65.0.29.75` (`m8i.2xlarge`, 31 GB RAM):
+
+- `make aws-sync` then `install.sh` re-run: the Grafana step now passes (the installer reads `GRAFANA_ADMIN_PASSWORD` from `.env`, commit `146f07b`); Viewer token stored, mcp-grafana restarted.
+- The installer's agent registration first failed with `sandbox is enabled but no sandbox provider is configured`: `bubblewrap` was missing. Fix: `sudo apt-get install -y bubblewrap`, `sudo systemctl restart wavebreak-trueforge` (log line `Local sandbox fallback is available`), and `bubblewrap` is now in `install.sh`. Nothing else is needed for the sandbox (no Daytona key).
+- Registered on the instance: `sudo /home/ubuntu/wavebreak/.venv/bin/python /home/ubuntu/wavebreak/agent/register.py --provider gateway --tier demo --register-provider` (provider `tfy-gateway`, both MCP servers, agent `wavebreak` on `openai-polaris/gpt-4o`). Test turn on the dev model (`openai-polaris/gpt-4.1-mini`, `--tier dev`): replied `ok`, 6,729 tokens, $0.0018; the agent was switched back to `--tier demo`.
+- `sudo make demo-reset PROFILE=full` (run with `sudo`, because `.env` and `agent/spike/.env` are root-owned): 20 devices healthy on v1.1 (12 rev A, 8 rev B), lab empty. `sudo make demo-status PROFILE=full` shows all 20 healthy.
+- Services: `wavebreak-trueforge` (127.0.0.1:8790) and `wavebreak-fleet-mcp` (127.0.0.1:8792) are active and restart on failure. Grafana 3000, hawkBit API 8080 and UI 8081 listen on all interfaces (reach them through the SSH tunnel; keep the security group at SSH only).
+- The full-profile agent scenes were not run on AWS. Lab parallelism there is 2, so a rehearsal of two revisions should take about 3 minutes.
+
