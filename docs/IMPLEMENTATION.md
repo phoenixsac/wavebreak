@@ -73,7 +73,7 @@ STATUS: IN PROGRESS
 | T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
 | T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Image built. Container booted, identity + inference-app + node_exporter active, labels v1.0 correct. Fixed identity temp-file handling; OTA local API was confirmed to require LAB_DEVICE_TOKEN; telemetry-off correctly skips Fluent Bit. |
 | T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | done | smoke | Lite fleet sent device/fw_version-labeled app metrics to Prometheus and logs to Loki. During e2e, edge-001 metrics changed through v1.2 and v1.1 after installs; fleet was removed afterward. |
-| T6.7 | E2E: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | in-progress | — | Implement scripts/e2e.sh and run against lite fleet |
+| T6.7 | E2E: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | done | smoke | `scripts/e2e.sh` assigned v1.2 to rev-B edge-001, observed `wavebreak_app_restarts_total` reach 1, reinstalled v1.1, confirmed active app + labeled frames metric, and removed the lite fleet. |
 
 ### M7 — Container runtime + fleet launcher + seed
 
@@ -157,3 +157,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Published bundles to live H2 hawkBit and seeded all four devices (T7.3) |
 | 2026-09-26 | Codex MVP | Verified Makefile fleet and seed integration (T7.4) |
 | 2026-09-26 | Codex MVP | Added hawkBit Management API client; verified a ready one-group rollout stays unstarted (T11.1) |
+| 2026-09-26 | Codex MVP | Ran v1.2 OOM → v1.1 recovery e2e on edge-001; fleet cleaned up (T6.7) |
