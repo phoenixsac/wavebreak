@@ -40,6 +40,7 @@ STATUS: IN PROGRESS
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
 | T2.7 | hawkBit tenant bootstrap script `scripts/hawkbit-config.sh`: enable gateway-token auth, set token from `.env`, set polling interval | orch | T2.1 | done | smoke | Verified against running server. Min polling 30s by default; lowered with -Dhawkbit.controller.minPollingTime=00:00:05, 10s accepted |
 | T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | done | smoke | Configured file-backed H2 in the writable artifact volume with `MODE=LEGACY`; republished v1.0–v1.4, restarted hawkBit, and verified all five distribution sets remained. |
+| T2.9 | Optional separate hawkBit UI image matching server 1.1.0; enabled by full and opt-in for lite, Management API URL and heap cap | orch | T2.3 | in-progress | — | Docker Hub has `hawkbit/hawkbit-ui:1.1.0`; inspecting its image configuration before compose wiring. |
 
 ### M3 — Bundles + publish
 
