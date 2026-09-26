@@ -52,8 +52,8 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T4.1 | inference-app v1.0 (Python stdlib): camera loop, frame size by HW_REV (A 1080p, B 4K, scaled bytes, configurable), JSON log lines with fw_version and labels, textfile metrics every 5s (atomic write) incl. cgroup memory.current, config reload every ~45s, heartbeat metric; pytest | implementer | — | in-progress | — | Metric names in architecture.md §6 |
-| T4.2 | Releases `sim/bundles/v1.0` … `v1.4` (manifest.json, app/, config.yaml) as real code diffs: v1.1 latency metric; v1.2 unbounded 4K enhancement buffer (rev B only, leak pace configurable, OOM ~3 min); v1.3 renamed config key read on first reload → crash; v1.4 bounded buffer. Tests for leak and crash logic | implementer | T4.1 | in-progress | — | Faults are code, never fake logs |
+| T4.1 | inference-app v1.0 (Python stdlib): camera loop, frame size by HW_REV (A 1080p, B 4K, scaled bytes, configurable), JSON log lines with fw_version and labels, textfile metrics every 5s (atomic write) incl. cgroup memory.current, config reload every ~45s, heartbeat metric; pytest | implementer | — | done | unit | inference_app.py stdlib; tests identity, metrics, parser |
+| T4.2 | Releases `sim/bundles/v1.0` … `v1.4` (manifest.json, app/, config.yaml) as real code diffs: v1.1 latency metric; v1.2 unbounded 4K enhancement buffer (rev B only, leak pace configurable, OOM ~3 min); v1.3 renamed config key read on first reload → crash; v1.4 bounded buffer. Tests for leak and crash logic | implementer | T4.1 | done | unit | 41 tests incl. test_faults.py: v1.2 unbounded buffer rev B only, v1.3 KeyError on first reload (uncaught, exit 1), v1.4 bounded. Leak ~12 MB/min at defaults (40 KB 4K frames, 5 fps) |
 
 ### M5 — ota-agent
 

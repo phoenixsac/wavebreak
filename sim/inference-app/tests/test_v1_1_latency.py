@@ -1,7 +1,6 @@
 """v1.1 adds wavebreak_app_frame_latency_seconds; v1.0 does not have it."""
 
 import pytest
-
 from conftest import FakeClock, build_app
 
 

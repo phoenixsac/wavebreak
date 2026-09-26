@@ -1,7 +1,6 @@
 """fw_version comes from manifest.json "version"; sensor from HW_REV."""
 
 import pytest
-
 from conftest import ALL_VERSIONS, BUNDLES_DIR, load_bundle_module
 
 
