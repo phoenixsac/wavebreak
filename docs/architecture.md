@@ -631,6 +631,8 @@ On a host with memory for the full backend and 20-device fleet, `make up PROFILE
 
 ### AWS launch checklist
 
+Before launch, push the current `master` commits to `origin`; the bootstrap URL and default clone both read `master`.
+
 1. Launch an `m8i.2xlarge` instance with Ubuntu 24.04 amd64, a 60 GiB gp3 root volume, a key pair, and a public IPv4 address.
 2. Create an inbound security group with **source `<YOUR_PUBLIC_IP>/32` on every rule**: TCP 22 (SSH), 3000 (Grafana), 8000 (mcp-grafana), 8080 (hawkBit API/DDI), 8081 (hawkBit UI), and 8090 (lab controller). Only add 8082 if hawkBit MCP is separately installed. Do not open 9090 (Prometheus) or 3100 (Loki); Docker-published ports bypass host UFW rules, so keep these ports closed at the AWS security group.
 3. SSH in as `ubuntu`, then bootstrap the installer and let it clone the repo:

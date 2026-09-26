@@ -146,7 +146,7 @@ STATUS: COMPLETE
 | ID | Item | Command | Status |
 |----|------|---------|--------|
 | N1 | Firecracker host networking (bridges, NAT, user-owned taps). Not persistent: rerun after `wsl --shutdown` | `sudo /home/dev/wavebreak/scripts/host/setup-fc-net.sh` | done 2026-09-25: wbfield0, wblab0, fc-field-1..2, fc-lab-1..2 owned by uid 1001, NAT rule present |
-| N2 | Push commits so EC2 can clone | `git push -u origin master` | done 2026-09-25 |
+| N2 | Push the installer and current repo state so EC2 can clone | `git push origin master` | todo: local `master` has unpushed commits; needed before using the raw GitHub bootstrap URL |
 
 ## Parked
 
