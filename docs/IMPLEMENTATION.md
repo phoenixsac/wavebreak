@@ -115,7 +115,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | todo | — | Explicit start per wave is required by the agent |
+| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | in-progress | — | hawkBit OpenAPI inspected live; each wave will be a separate one-group rollout |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
