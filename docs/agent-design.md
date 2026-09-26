@@ -195,6 +195,39 @@ All outputs are summaries (no raw time series). Every call writes an event to th
 
 Lab calls (`rehearse`) go through the lab controller: create lab devices at the fleet's current version per hw_rev, install the target bundle (fetched read-only from hawkBit), sample, destroy.
 
+### 10.1 Implementation semantics (fleet MCP server, `agent/fleet_mcp/`)
+
+Decided 2026-09-26. Approval semantics (user decision): approve every `start_wave`, `halt_rollout`, `rollback`. Demo fleet starts on v1.1.
+
+**Config (env):** `HAWKBIT_URL`, `HAWKBIT_USERNAME`, `HAWKBIT_PASSWORD`, `PROMETHEUS_URL`, `LOKI_URL`, `LAB_CONTROLLER_URL`, `LAB_API_TOKEN`, `FLEET_LEDGER_PATH` (SQLite file, volume path), `FLEET_MCP_HOST` (127.0.0.1), `FLEET_MCP_PORT` (8792), `FLEET_LAB_MOCK` (0/1), `FLEET_EVIDENCE_MAX_AGE_S` (900), `FLEET_LAB_MAX_MINUTES` (5), `FLEET_OBSERVE_MAX_MINUTES` (4), `FLEET_POLL_INTERVAL_S` (15), `BUNDLES_DIR` (`sim/bundles`), distribution set name `wavebreak-app`.
+
+**Phases:** PLANNED, REHEARSED, BLOCKED, WAVE_RUNNING, WAVE_OBSERVED, COMPLETE, HALTED, ROLLED_BACK, VERIFIED (§9; PREFLIGHT is not stored). Terminal: BLOCKED, COMPLETE, VERIFIED. A new plan is refused while another plan is non-terminal.
+
+**Evidence:** id `ev-<8 hex>`; ledger event of type rehearsal, observation or verification with payload `{verdict, ...}`. Verdict values: rehearsal `pass|fail`, observation `healthy|regression|inconclusive`, verification `recovered|not_recovered`. Fresh means age <= `FLEET_EVIDENCE_MAX_AGE_S`. An action must use the **latest** evidence of its kind (a newer observation of the same wave supersedes older ones).
+
+| Tool | Preconditions (all enforced server-side; refusal raises a tool error with a stable code and writes an `error` event) |
+|---|---|
+| `start_wave(plan, wave=1, evidence)` | phase REHEARSED; evidence is the latest `rehearsal` of the plan, verdict `pass`, fresh |
+| `start_wave(plan, wave=n>1, evidence)` | phase WAVE_OBSERVED; wave n-1 started and n not started; evidence is the latest `observation` of wave n-1, verdict `healthy`, fresh |
+| `observe_wave(plan, wave, minutes)` | wave is the latest started wave; phase WAVE_RUNNING or WAVE_OBSERVED; minutes clamped to `FLEET_OBSERVE_MAX_MINUTES` |
+| `halt_rollout(plan, evidence)` | phase WAVE_OBSERVED; evidence is the latest `observation` of the latest wave, verdict `regression`, fresh |
+| `rollback(plan, cohort or targets, to_version, evidence)` | phase HALTED; `to_version` equals the plan's `from_version`; evidence is the regression evidence used to halt (or a newer regression observation), fresh; every target is an updated device of the plan whose hw_rev is in the evidence `affected_hw_revs` |
+| `verify_recovery(plan, targets, minutes)` | phase ROLLED_BACK; targets are a subset of rolled-back devices |
+| `rehearse(plan, hw_revs, minutes)` | phase PLANNED; hw_revs subset of the plan's hw_revs (default all); minutes clamped to `FLEET_LAB_MAX_MINUTES` |
+| `record_decision` | plan exists; all evidence ids exist and belong to the plan |
+
+Refusal codes: `PLAN_NOT_FOUND`, `BAD_PHASE`, `EVIDENCE_MISSING`, `EVIDENCE_WRONG_PLAN`, `EVIDENCE_WRONG_KIND`, `EVIDENCE_WRONG_WAVE`, `EVIDENCE_STALE`, `EVIDENCE_SUPERSEDED`, `EVIDENCE_VERDICT`, `WAVE_ORDER`, `WRONG_TARGET_VERSION`, `TARGET_NOT_ELIGIBLE`, `ACTIVE_PLAN_EXISTS`, `UNKNOWN_VERSION`, `BAD_ARGUMENT`.
+
+**Wave planning (`plan_rollout`):** eligible devices are field targets whose installed version differs from the requested version; `from_version` is the most common installed version among eligible devices, others are listed in `excluded` with a reason. Wave sizes are ints or `"rest"`. Stratified round-robin: for each wave, cycle over the strata (hw_rev, sorted) taking one device at a time until the wave is full; within a stratum, order devices by region round-robin then id, so waves spread across regions. If a wave is smaller than the number of strata it gets one device from the first strata and the plan carries a `not_stratified` warning. `"rest"` takes all remaining devices. Empty waves are dropped. Deterministic for the same inventory.
+
+**Actions (real backend):** `start_wave` creates one single-group hawkBit rollout (`HawkbitClient.create_wave`, filter `controllerId=in=(a,b)`, TODO(verify) FIQL form) for the wave's devices and starts it explicitly. `halt_rollout` stops every started rollout of the plan that is not finished. `rollback` assigns `from_version` (forced) to each target. The harness approval happens before the tool call; the ledger records an `approval` event (`approved_via: harness`) and an `action` event for each executed action.
+
+**Verdict rules (`assess`, pure function; thresholds env-overridable):** per hw_rev, updated devices vs control devices (same hw_rev, plan devices not yet updated or non-plan devices still on `from_version`); if a hw_rev has no control device, each updated device's own pre-update stats are the control (`control_type: baseline`). Signals: `oom` (updated OOM kills > 0 and control 0), `crash_loop` (any updated device with >= 3 restarts in the window), `memory_slope` (updated median slope > control median slope + 1 MB/min, needs >= 5 samples over >= 60 s), `restarts` (updated restarts >= 1 and rate > 2x control rate), `install` (any wave device with a failed hawkBit action), `fps` (updated median < 80% of control median; skipped if either is missing). `regression` if any signal fires (per-hw_rev; overall lists `affected_hw_revs`); `inconclusive` if any updated device has not yet installed the version or has < 3 samples and no signal fired; else `healthy`.
+
+**Rehearsal:** per hw_rev create one lab device at `from_version`, install `version`, poll summary every poll interval for the window, destroy in a `finally`. Per-hw_rev result from the lab summary: install result, restarts delta, oom kills, memory slope (MB/min, least squares), unit state. `fail` if install failed, unit not active, restarts >= 1, oom > 0, or slope over the threshold. Output always carries `caveat: "Rehearsal covers only the observed window; faults with later onset are not detected."` Lab summary JSON is assumed (TODO(verify) against `lab/controller`): `{device_id, fw_version, unit_state, restarts, oom_kills, memory_samples: [{t, bytes}], last_install: {result, detail}}`. Mock lab (`FLEET_LAB_MOCK=1`) scenarios per `version[:hw_rev]`: `healthy`, `leak` (memory grows ~3 MB/min then OOM), `crash` (restarts every 20 s). Scenario map from env `FLEET_LAB_MOCK_SCENARIOS` JSON, e.g. `{"v1.3":"crash","v1.2:B":"leak"}`; time is simulated (injected sleep and clock), so tests are instant.
+
+**Output style:** every tool returns a compact JSON object (no raw time series); lists capped; every call appends an event to the ledger. Annotations: reads `readOnlyHint`; `plan_rollout`, `rehearse`, `record_decision` write but non-destructive; `start_wave`, `halt_rollout`, `rollback` `destructiveHint=true` (A15).
+
 ## 11. Ledger (rollout state store)
 
 SQLite file inside the wavebreak-fleet MCP server container (volume-mounted).
