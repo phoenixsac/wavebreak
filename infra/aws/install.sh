@@ -216,7 +216,7 @@ log 'starting TrueForge (:8790) and the fleet MCP server (:8792)'
 # start_trueforge.sh sets OUTBOUND_URL_ALLOWED_HOSTS and MCP_REQUEST_TIMEOUT_MS=900000 (defaults);
 # socat and ripgrep (installed above) back TrueForge's local bubblewrap sandbox.
 MCP_REQUEST_TIMEOUT_MS=900000 ./agent/spike/start_trueforge.sh || log 'TrueForge already running or failed to start'
-./agent/start_fleet_mcp.sh || log 'fleet MCP already running or failed to start'
+FLEET_LAB_PARALLEL=2 ./agent/start_fleet_mcp.sh || log 'fleet MCP already running or failed to start'
 wait_port 127.0.0.1 8790 120 || die 'TrueForge did not open :8790 (see agent/spike/trueforge.log)'
 wait_port 127.0.0.1 8792 60 || die 'fleet MCP did not open :8792 (see run/fleet-mcp.log)'
 python3 agent/register.py || log 'agent registration failed; run: python3 agent/register.py'

@@ -1,7 +1,7 @@
 # Wavebreak — Agent Design (Part B)
 
 > Catches bad OTA rollouts at runtime and rolls them back, with your approval.
-> Status: DRAFT for build day. Source of truth for agent design; environment design lives in `docs/architecture.md`.
+> Status: implemented; Scene 3 verified end to end through TrueForge 2026-09-26 (§20). Source of truth for agent design and intent; environment facts live in `docs/architecture.md` (which also holds the drift report).
 
 ## Index
 
@@ -87,7 +87,7 @@ Summary only; details in `docs/architecture.md`.
 | MCP calls from Code Mode are bridged through the harness (in-sandbox `mcp-client`, unix socket). Tools that require approval are refused from the sandbox (`requires interactive handling and is not callable from sandbox`). **Tools that do not require approval run from Code Mode with no pause**, including unannotated writes (verified). | Sandbox never needs network access to our infra; credentials stay in the harness. Every write tool must be named in `require_approval_for_tools`, or else it is callable ungated from Code Mode. |
 | Per-tool-call timeout: env `MCP_REQUEST_TIMEOUT_MS`, default 240000 ms (verified: 120 s ok, 300 s cut at about 226 s; with 900000 a 300 s call ok). Connect timeout 30 s (`MCP_CONNECT_TIMEOUT_MS`). | A blocking `observe_wave` is feasible; set the env var above the longest window. See §17. |
 | **Model providers:** built-in Anthropic, OpenAI, Google Gemini, Fireworks, Z.ai, Moonshot, Together, Alibaba, plus `custom` (base_url + api_key). A `truefoundry` provider type (AI Gateway base_url) exists in the schema but needs a gateway we do not have. | We use Google Gemini directly (A13). |
-| **Gemini free tier rate limits** (verified 2026-09-26): 5 requests/min per model for `gemini-3.6-flash`, `gemini-3.8-flash`; 15 requests/min for `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`. One agent-loop step is one request. | A rollout with many tool calls will hit 429 mid-turn on the 5 RPM models. Use a paid key or the lite model for rehearsals; see §22. |
+| **Gemini free tier rate limits** (verified 2026-09-26): 5 requests/min per model for `gemini-3.6-flash`, `gemini-3.8-flash`; 15 requests/min for `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`. One agent-loop step is one request. | A rollout with many tool calls will hit 429 mid-turn on the 5 RPM models. Use a paid key or the lite model for rehearsals; see §22. **Also observed 2026-09-26: a free-tier daily cap of 20 requests per model per day (`generate_content_free_tier_requests`, PerDayPerProjectPerModel); one full scene needs about 20 requests, so two scenes on the free key exhaust it. Use a paid key for the demo.** The TrueForge instance only has `gemini-3-6-flash` and `gemini-3-5-flash-lite` configured; the lite model rejects `reasoning_effort` (422), so `register.py --model` omits it for lite models. |
 | **Subagents are dynamic**: root agent spawns them via a built-in tool with instructions it writes. Same tools and sandbox. No nesting. Cannot ask the user. Their approval-gated calls still pause. Parallel; root waits for all. | We cannot define named specialist subagents. We steer usage via instructions. A fixed specialist would have to be a separate saved agent called from our code (not needed). |
 | Default approval gates only tools annotated **destructive**. Unannotated tools match neither `@write` nor `@destructive` and run **without approval**. | Always list risky tools **by name** in `require_approval_for_tools`; also annotate our own tools. |
 | No scheduler, no native wait. A turn runs until done or `iteration_limit` (default 100, max 1024). | Soak periods need a design (§17). |
@@ -173,7 +173,7 @@ stateDiagram-v2
   BLOCKED --> [*]
 ```
 
-Default waves: 2 → 5 → all remaining, stratified by hw_rev.
+Default waves: 2 → 5 → all remaining, stratified by hw_rev. **Partial rollout (A18):** a BLOCKED plan whose rehearsal failed for only some hw_revs is followed by a new plan (`plan_rollout ... exclude_hw_revs, exclusion_evidence_id`) that holds those hw_revs out; the new plan is rehearsed again for the kept hw_revs and proceeds normally. The hold is recorded in the ledger and shown as `held` by `get_rollout_state`; held devices stay on `from_version` and are listed in the final report as pending a fix.
 
 ## 10. Fleet MCP server: tool specs
 
@@ -183,7 +183,7 @@ All outputs are summaries (no raw time series). Every call writes an event to th
 |---|---|---|---|---|---|
 | `get_fleet_inventory` | — | counts by version × hw_rev × region; device list | — | no | readOnly |
 | `get_rollout_state` | `plan_id?` | phase, waves (targets, status), evidence ids, decisions, approvals | — | no | readOnly |
-| `plan_rollout` | `version`, `waves=[2,5,"rest"]`, `stratify_by="hw_rev"` | `plan_id`, wave → device list | version exists as distribution set; no active plan | no | write (non-destructive) |
+| `plan_rollout` | `version`, `waves=[2,5,"rest"]`, `stratify_by="hw_rev"`, `exclude_hw_revs?`, `exclusion_evidence_id?` | `plan_id`, wave → device list, `excluded`, `held` | version exists as distribution set; no active plan (unstarted plans are superseded); holds need failed-rehearsal evidence (§10.1) | no | write (non-destructive) |
 | `rehearse` | `plan_id`, `hw_revs`, `minutes` (≤ lab max) | `evidence_id`, per-hw_rev verdict + metrics (memory slope, restarts, OOM, crash loop, install result) | plan exists | no | write (lab only) |
 | `get_bundle_diff` | `from_version`, `to_version` | changed files + short diff summary | — | no | readOnly |
 | `start_wave` | `plan_id`, `wave`, `evidence_id` | hawkBit rollout id, targets, start time | wave 1: passing rehearsal evidence; wave n: healthy `observe_wave` evidence for wave n-1; evidence fresh (≤ X min) | **yes** | destructive |
@@ -216,7 +216,11 @@ Decided 2026-09-26. Approval semantics (user decision): approve every `start_wav
 | `rehearse(plan, hw_revs, minutes)` | phase PLANNED or REHEARSED (re-run refreshes stale evidence); hw_revs subset of the plan's hw_revs (default all); minutes clamped to `FLEET_LAB_MAX_MINUTES` |
 | `record_decision` | plan exists; all evidence ids exist and belong to the plan |
 
-Refusal codes: `PLAN_NOT_FOUND`, `BAD_PHASE`, `EVIDENCE_MISSING`, `EVIDENCE_WRONG_PLAN`, `EVIDENCE_WRONG_KIND`, `EVIDENCE_WRONG_WAVE`, `EVIDENCE_STALE`, `EVIDENCE_SUPERSEDED`, `EVIDENCE_VERDICT`, `WAVE_ORDER`, `WRONG_TARGET_VERSION`, `TARGET_NOT_ELIGIBLE`, `ACTIVE_PLAN_EXISTS`, `UNKNOWN_VERSION`, `BAD_ARGUMENT`.
+Refusal codes: `PLAN_NOT_FOUND`, `BAD_PHASE`, `EVIDENCE_MISSING`, `EVIDENCE_WRONG_PLAN`, `EVIDENCE_WRONG_KIND`, `EVIDENCE_WRONG_WAVE`, `EVIDENCE_WRONG_VERSION`, `EVIDENCE_STALE`, `EVIDENCE_SUPERSEDED`, `EVIDENCE_VERDICT`, `WAVE_ORDER`, `WRONG_TARGET_VERSION`, `TARGET_NOT_ELIGIBLE`, `ACTIVE_PLAN_EXISTS`, `UNKNOWN_VERSION`, `BAD_ARGUMENT`; backend failures raise `BACKEND_ERROR` and `LAB_ERROR` (not in the `CODES` tuple).
+
+**Partial rollout (hold), decided 2026-09-26 (A18):** `plan_rollout(version, waves, stratify_by, exclude_hw_revs, exclusion_evidence_id)`. Excluding a cohort requires `exclusion_evidence_id`: rehearsal evidence (`type` rehearsal) whose `version` equals the plan's version and whose `per_hw_rev[hw].verdict` is `fail` for **every** excluded hw_rev. The evidence may come from an earlier, BLOCKED plan; no freshness or latest-of-kind check applies (a hold is a scope reduction, and stricter checks live on the actions). Refusals: `EVIDENCE_MISSING` (no or unknown id), `EVIDENCE_WRONG_KIND`, `EVIDENCE_WRONG_VERSION`, `EVIDENCE_VERDICT` (that hw_rev did not fail or was not rehearsed), `BAD_ARGUMENT` (no eligible device with that hw_rev, or every device held). On success the new plan contains only the kept devices; the held devices are stored in the plan (`held`: hw_rev, device ids, evidence id, reasons), a `hold` ledger event `{hw_revs, device_ids, evidence_id, source_plan_id, reasons}` is written, `excluded` lists them with the reason `held: hw_rev B failed rehearsal <ev>`, and `get_rollout_state` returns `held` with each device's current installed version. The new plan must be rehearsed (`rehearse` covers the kept hw_revs) before `start_wave`. Nothing in any later tool can add a held device to a wave. Unit tests: `agent/fleet_mcp/tests/test_fleet.py` section 11.
+
+**Other implementation facts (audit 2026-09-26):** `get_rollout_state` also returns `next_allowed`, `actions`, `recent_errors`, per-device `installed_version` and `held`; lists are capped (evidence, decisions, approvals and actions last 10, errors last 5, devices 100). `rehearse` creates lab devices in batches of `FLEET_LAB_PARALLEL` (server default 2; `agent/start_fleet_mcp.sh` sets 1 for the memory-limited local host, the AWS installer sets 2). `rollback.cohort` is an attribute dict such as `{"hw_rev": "B"}`; exactly one of `cohort` or `targets` is required. `verify_recovery.targets` defaults to all rolled-back devices. `start_wave` waits up to 60 s for the hawkBit rollout to reach `ready`, then starts it; a failure raises `BACKEND_ERROR` and nothing is started. Extra env vars: `FLEET_LAB_PARALLEL`, `FLEET_LAB_MOCK_TIME_SCALE`, `FLEET_TH_<FIELD>` (threshold overrides); `FLEET_LEDGER_PATH` defaults to `run/fleet-ledger.sqlite` and the server runs as a host process (`agent/start_fleet_mcp.sh`), not in a container. The `superseded` marker is an `action` event with `kind: superseded`.
 
 **Wave planning (`plan_rollout`):** eligible devices are field targets whose installed version differs from the requested version; `from_version` is the most common installed version among eligible devices, others are listed in `excluded` with a reason. Wave sizes are ints or `"rest"`. Stratified round-robin: for each wave, cycle over the strata (hw_rev, sorted) taking one device at a time until the wave is full; within a stratum, order devices by region round-robin then id, so waves spread across regions. If a wave is smaller than the number of strata it gets one device from the first strata and the plan carries a `not_stratified` warning. `"rest"` takes all remaining devices. Empty waves are dropped. Deterministic for the same inventory.
 
@@ -237,7 +241,7 @@ CREATE TABLE rollouts (
   plan_id TEXT PRIMARY KEY,
   version TEXT NOT NULL,
   from_version TEXT NOT NULL,
-  waves_json TEXT NOT NULL,        -- wave -> [device_id]
+  waves_json TEXT NOT NULL,        -- {"waves": [[device_id]], "devices": {id: {hw_rev, region}}, "held": [{hw_rev, device_ids, evidence_id, reasons, reason}]}
   phase TEXT NOT NULL,             -- state machine §9
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -247,7 +251,7 @@ CREATE TABLE events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plan_id TEXT NOT NULL,
   ts TEXT NOT NULL,
-  type TEXT NOT NULL,              -- rehearsal|observation|decision|approval|action|verification|error
+  type TEXT NOT NULL,              -- rehearsal|observation|decision|approval|action|verification|hold|error
   wave INTEGER,
   evidence_id TEXT,                -- set for rehearsal/observation/verification
   payload_json TEXT NOT NULL
@@ -282,13 +286,15 @@ Root-cause hint: shared attribute of affected devices (hw_rev, region, version) 
 - **Choices:** `ask_user_questions` for decisions with options (halt only vs halt + roll back; extend soak vs proceed).
 - **Proposed approval semantics (confirm):** approve every wave start, every halt and every rollback. Rehearsal and observation run without approval.
 
-## 14. Agent spec (draft)
+## 14. Agent spec
+
+As registered by `agent/register.py` (rendered to `agent/wavebreak-agent.json`). No `rollout-playbook` skill: the playbook is inline in the instructions (A14 note, drift C7).
 
 ```json
 {
   "model": {
     "name": "google-gemini/gemini-3-6-flash",
-    "params": { "temperature": 0.1, "reasoning_effort": "high" }
+    "params": { "temperature": 0.1, "reasoning_effort": "medium" }
   },
   "instructions": "<see §15>",
   "mcp_servers": [
@@ -300,11 +306,10 @@ Root-cause hint: shared attribute of affected devices (hw_rev, region, version) 
     },
     {
       "name": "grafana",
-      "enable_tools": ["@read-only"],
+      "enable_tools": ["query_prometheus", "query_loki_logs", "list_datasources", "list_prometheus_metric_names", "list_loki_label_values", "search_dashboards", "get_dashboard_summary"],
       "preload": false
     }
   ],
-  "skills": [{ "name": "rollout-playbook" }],
   "config": {
     "sandbox": { "enabled": true },
     "generative_ui": { "enabled": true },
@@ -317,14 +322,16 @@ Root-cause hint: shared attribute of affected devices (hw_rev, region, version) 
     "iteration_limit": 300
   },
   "messages": [
-    { "type": "user.message", "content": "Start by calling get_fleet_inventory and get_rollout_state." }
+    { "type": "user.message", "content": "Start by calling get_rollout_state and get_fleet_inventory, then wait for my instruction." }
   ]
 }
 ```
 
 Model name is `<provider>/<configured model name>` (the `name` given when registering the provider, not the upstream `model_id`). Skills are git-backed (`type: git`, GitHub/GitLab HTTPS URL, path, ref) and registered under `PUT /api/v1/settings/skills`; the sandbox fetches them from GitHub (allowlisted). Without any sandbox (no bwrap/socat/rg and no Daytona): `sandbox.enabled: false`, drop `skills`, move the playbook into instructions.
 
-## 15. Instructions (draft)
+## 15. Instructions
+
+The registered text is `agent/instructions.md` (numbered workflow, evidence rules, partial-rollout rule, report format); the outline below is the design intent it implements. Key additions since the draft: on a rehearsal that fails for only some hw_revs the agent proposes a partial rollout (`plan_rollout` with `exclude_hw_revs` and the failed evidence id, `waves=[1,"rest"]` on the 4-device lab fleet), records the hold with `record_decision`, states it plainly before the first evidence card, never widens the plan, and lists held cohorts in the final report.
 
 ```
 You are Wavebreak, the rollout manager for a fleet of edge AI devices.
@@ -351,7 +358,7 @@ Always:
 
 ## 17. Soak / waiting strategy
 
-1. **Primary:** `observe_wave(minutes)` blocks for a bounded window (demo: 2–4 min) and returns aggregated evidence. Requires tool-call timeout ≥ window. Verified (§21): default cutoff is 240 s (`MCP_REQUEST_TIMEOUT_MS`); a 300 s call passes with the env var raised. Keep demo windows ≤ 4 min (fits the default) or raise the variable. LLM rate limits (§5) matter more than this timeout.
+1. **Primary:** `observe_wave(minutes)` blocks for a bounded window (demo: 2–4 min) and returns aggregated evidence. Requires tool-call timeout ≥ window. Verified (§21): default cutoff is 240 s (`MCP_REQUEST_TIMEOUT_MS`); a 300 s call passes with the env var raised. `agent/spike/start_trueforge.sh` raises the variable to 900000 by default, so windows of 2–4 min plus lab device creation (up to about 45 s each) fit. LLM rate limits (§5) matter more than this timeout.
 2. **Fallback A:** `observe_wave` returns immediately with "soak in progress, N s remaining"; the agent ends its turn; the operator types "continue".
 3. **Fallback B:** small SDK driver script sends "continue" turns on a timer to the same session.
 
@@ -393,17 +400,90 @@ Two providers: **local fallback** (default when host deps exist) and **Daytona**
 
 ## 20. Demo script
 
-Setup: fleet on v1.1 (or v1.0), all healthy; Grafana dashboard open; TrueForge chat open.
+Final storyline (decided 2026-09-26, A19). Rehearsal always runs on ALL hardware revisions. Three scenes, each on a fresh v1.1 fleet, each about 8 to 11 minutes with the lab and soak windows as configured (see Timings).
 
-1. "v1.3 is published. Take care of the rollout." → inventory, plan (stratified), **rehearsal catches the crash loop on all hw_revs** → blocked before any field device is touched. Report.
-2. "v1.2 is published. Take care of the rollout." → **Verified 2026-09-26 with the real lab: a 90 s rehearsal on rev B already FAILS (memory slope about 11 MB/min), so v1.2 is blocked in rehearsal, not caught by the canary.** To demo the canary catch, use a shorter rehearsal window or rev A only (TODO decide), or accept that rehearsal blocks v1.2 as well.
-3. Evidence card → **approve** wave 1 (2 devices: 1 rev A + 1 rev B, stratified).
-4. `observe_wave` → rev B device memory climbs, OOM kills, restarts; rev A flat; control flat → regression on rev B.
-5. Evidence card + cause (rev B shared, `get_bundle_diff` shows the new 4K buffer) → **approve** halt → **approve** rollback of rev B cohort to v1.1.
-6. `verify_recovery` → rev B back to normal on Grafana. Final report + ledger audit trail.
-7. Optional: "v1.4 is published" → full rollout 2 → 5 → all, healthy.
+**Setup (before the audience arrives)**
 
-Talking points: install "success" ≠ healthy; stratified canaries; evidence-gated actions; harness-enforced approvals; audit trail.
+```bash
+docker stop wavebreak-hawkbit-ui-1          # memory: keep the hawkBit UI off on the 3.5 GB host
+make demo-reset                             # 4 devices on v1.1 and healthy, lab empty (about 45 to 90 s)
+make demo-status
+agent/spike/start_trueforge.sh              # :8790, needs agent/spike/.env with GEMINI_API_KEY
+agent/start_fleet_mcp.sh                # :8792, sets FLEET_LAB_PARALLEL=1 unless overridden
+.venv/bin/python agent/register.py          # only if MCP servers or the agent are missing (reads agent/instructions.md)
+```
+
+Open Grafana (`http://localhost:3000`, dashboard `Wavebreak Fleet`) and the TrueForge chat (`http://localhost:8790`, agent `wavebreak`). Use a paid Gemini key (A23). Run `make demo-reset` between scenes. To drive from a terminal instead of the chat: `.venv/bin/python agent/driver.py "<prompt>"` (asks y/n on every gated call; `--auto-approve` is for tests and logs every approval).
+
+Fleet (lite): rev A = edge-002 (eu-west), edge-004 (us-east); rev B = edge-001 (us-east), edge-003 (ap-south).
+
+### Scene 1: v1.3 is blocked in rehearsal (nothing touches the field)
+
+Type: `v1.3 is published. Take care of the rollout.`
+
+| Step | Agent action | Expected output |
+|---|---|---|
+| 1 | `get_rollout_state`, `get_fleet_inventory` | no active plan; 4 devices on v1.1 (2 A, 2 B) |
+| 2 | `plan_rollout(v1.3)` | wave 1 = edge-002 (A) + edge-003 (B), wave 2 = edge-004 (A) + edge-001 (B); phase PLANNED |
+| 3 | `rehearse` (about 3 min: one lab device per rev, serial) | verdict **fail**: rev A and rev B both restart (first config reload raises KeyError about 45 s after start); phase BLOCKED |
+| 4 | `get_bundle_diff(v1.1, v1.3)`, `record_decision` | cause: config key renamed without migration |
+| 5 | final report | v1.3 blocked, no field device touched, no approval requested, evidence id and numbers quoted, fleet still 4 x v1.1 |
+
+Checks: `make demo-status` shows no rollouts and no lab devices; the ledger has one plan in BLOCKED. Talking point: hawkBit would have reported install success on every device; only running the release exposes it.
+
+### Scene 2: v1.2 partial rollout (rev A ships, rev B is held)
+
+Type: `v1.2 is published. Take care of the rollout.`
+
+| Step | Agent action | Expected output | Approval |
+|---|---|---|---|
+| 1 | inventory, `plan_rollout(v1.2)`, `rehearse` (all revs) | rev A **pass**, rev B **fail** (memory slope about 11 MB/min against a 1.0 threshold within the window), overall fail, plan BLOCKED, evidence `ev-A1` | no |
+| 2 | `get_bundle_diff(v1.1, v1.2)` | cause: 4K enhancement buffer never evicted (rev B has the 4K sensor) | no |
+| 3 | `plan_rollout(v1.2, waves=[1,"rest"], exclude_hw_revs=["B"], exclusion_evidence_id=ev-A1)` | new plan with rev A only (edge-002, edge-004); held cohort rev B (edge-001, edge-003) with evidence `ev-A1`; ledger `hold` event | no |
+| 4 | `rehearse` (kept revs) then `record_decision` | rev A **pass**, evidence `ev-A2`, phase REHEARSED; decision "hold rev B, proceed rev A" | no |
+| 5 | evidence card, then `start_wave(1, ev-A2)` | card: wave 1 = edge-002 (A), rev A pass numbers, rev B held and why. hawkBit rollout `<plan>-wave1`, 1 target | **approve #1** |
+| 6 | `observe_wave(1)` (2 min) | rev A healthy vs baseline (slope near 0, 0 restarts, 0 OOM), evidence `ev-A3` | no |
+| 7 | `start_wave(2, ev-A3)` | hawkBit rollout `<plan>-wave2`, 1 target (edge-004) | **approve #2** |
+| 8 | `observe_wave(2)` | healthy, phase COMPLETE | no |
+| 9 | final report | rev A (edge-002, edge-004) on v1.2 and healthy; **rev B (edge-001, edge-003) held on v1.1 pending a fix, evidence `ev-A1`**; approvals and decisions listed | no |
+
+Checks: `make demo-status` shows rev A on v1.2 healthy and rev B on v1.1; hawkBit has two separate rollouts for the plan; `get_rollout_state` shows `held` with `ev-A1`. Talking points: the agent narrowed the blast radius instead of giving up on the release; the hold is evidence-backed and auditable; every wave start needed a human.
+
+### Scene 3: v1.4 full stratified rollout
+
+Type: `v1.4 is published. Take care of the rollout.`
+
+| Step | Agent action | Expected output | Approval |
+|---|---|---|---|
+| 1 | inventory, `plan_rollout(v1.4)` | wave 1 = edge-002 (A) + edge-003 (B), wave 2 = edge-004 (A) + edge-001 (B), no exclusions | no |
+| 2 | `rehearse` (all revs) | both revs **pass** (slope near 0, 0 restarts), evidence `ev-B1` | no |
+| 3 | evidence card, `start_wave(1, ev-B1)` | hawkBit rollout `<plan>-wave1`, 2 targets | **approve #1** |
+| 4 | `observe_wave(1)` (2 min) | both revs healthy vs same-rev controls, evidence `ev-B2` | no |
+| 5 | `start_wave(2, ev-B2)` | hawkBit rollout `<plan>-wave2`, 2 targets | **approve #2** |
+| 6 | `observe_wave(2)`, `record_decision` | healthy, phase COMPLETE | no |
+| 7 | final report | 4 of 4 devices on v1.4 and healthy, held cohorts: none, approvals and decisions listed | no |
+
+Checks: `make demo-status` shows all four on v1.4 healthy; hawkBit shows two finished rollouts of 2 targets each. Talking points: stratified waves (one rev A and one rev B in wave 1), waves never cascade automatically, the fix release goes through the same gates.
+
+Not in the scenes (unit-tested, mock backends only): regression on a field wave, `halt_rollout`, `rollback`, `verify_recovery` (architecture.md §4.8). It can be shown by pointing the rehearsal-blind fault at a wave, but the current v1.x releases are all caught in the lab.
+
+### Timings and observed behaviour (2026-09-26 test runs, driver with auto-approve)
+
+Final runs with `FLEET_LAB_PARALLEL=1` (one lab device at a time, 4 field devices; sampled every 10 s: never more than 1 lab device, at least 1.2 GB available). Model `gemini-3-5-flash-lite` (the demo model's free daily quota was exhausted). Each scene started after `make demo-reset`.
+
+| Scene | Wall time | Breakdown (ledger) | Result |
+|---|---|---|---|
+| 3 v1.4 | 10 min 6 s | rehearse both revs 5 min 33 s, two 2 min soaks | 4 of 4 on v1.4 and healthy; 2 separate rollouts, 2 approvals logged |
+| 2 v1.2 | 15 min 3 s | rehearse both revs 5 min 33 s, rehearse rev A 2 min 42 s, three 2 min soaks (the agent observed wave 1 twice), 2 approvals | rev A on v1.2 and healthy, rev B held on v1.1, `hold` event cites the failed rehearsal |
+| 1 v1.3 | 6 min 2 s | rehearse both revs about 5 min, no approvals | blocked, fleet untouched on v1.1 |
+
+Earlier runs with two concurrent lab devices (`FLEET_LAB_PARALLEL` was 2 by accident) took 3 min 20 s per two-rev rehearsal and about 9 min (Scene 3, demo model), 10.5 min (Scene 2) and 3.6 min (Scene 1).
+
+The 8-minute target is not met with one lab device at a time except Scene 1 in the earlier runs. Fixed costs: lab device create and install 30 to 45 s each plus the rehearsal window per rev, and the 2 min soak per wave. Levers, in order of least evidence lost: `FLEET_LAB_PARALLEL=2` (about 250 MB more RAM, breaks the 4 field plus 1 lab rule), `minutes=1.5` on `rehearse` (the leak shows inside 90 s), `minutes=1.5` on `observe_wave` (slope needs at least 60 s and 5 samples), and telling the agent to observe each wave once. Scene 2 needs two rehearsals by design.
+
+Other behaviour: one transient `Cannot connect to API` ended a turn (now retried by the driver); the lite model once stopped after the inventory to ask for confirmation (fixed by an explicit rule in `agent/instructions.md`); the demo model (`gemini-3-6-flash`) ran Scene 3 and the earlier Scene 1 dry run unprompted.
+
+Talking points overall: install "success" is not health; rehearsal on every hardware revision; stratified canaries; evidence-gated actions (the server refuses without fresh evidence of the right kind); harness-enforced approvals; partial rollout with an auditable hold; audit trail in the ledger.
 
 ## 21. Verify-first checklist
 
@@ -416,7 +496,7 @@ Verified 2026-09-26 (TrueForge v0.2.1, node v24.21.0, spike code in `agent/spike
 - [x] Tool-call timeout: 30 s ok, 120 s ok, 300 s failed at about 226 s with `MCP error -32001: Request timed out` (default 240000 ms; observed cutoff was slightly earlier than the configured value, cause not investigated). With `MCP_REQUEST_TIMEOUT_MS=900000`, 300 s ok. Decides §17: blocking `observe_wave` up to about 3.5 min works by default.
 - [x] Daytona key: **not needed**. Local sandbox fallback provides sandbox, skills and Code Mode (§19). Daytona stays optional.
 - [ ] hawkBit MCP tool list and whether it works (decides raw-read usage).
-- [ ] hawkBit: one rollout per wave works; or next-group trigger via API.
+- [x] hawkBit: one rollout per wave works (2026-09-26, Scene 3): `plan-...-wave1` and `plan-...-wave2`, one group, 2 targets each, filter `controllerId=in=(a,b)`, each started by its own approved `start_wave`.
 
 SDK notes (programmatic driving; `agent/spike/drive.py` is a working example over plain HTTP + SSE):
 
@@ -433,11 +513,12 @@ SDK notes (programmatic driving; `agent/spike/drive.py` is a working example ove
 
 ## 22. Open questions
 
-- Approval semantics: every wave start, or only halts/rollbacks?
+- ~~Approval semantics~~ decided: every `start_wave`, `halt_rollout`, `rollback`.
 - Gemini free-tier limit (5 requests/min on the flash models) will throttle a full rollout. Options: paid key, lite model (15 RPM), retry/backoff in the driver. Decide before build day.
 - Local vs hosted TrueForge for judging (remote access needed?).
 - Observation thresholds and soak lengths for demo pacing.
-- Fleet starting version for the demo (v1.0 or v1.1).
+- ~~Fleet starting version~~ decided: v1.1 (`make demo-reset`).
+- Paid Gemini key for the demo: the free tier allows 20 requests per model per day (§5).
 
 ## 23. Decisions log
 
@@ -460,6 +541,12 @@ SDK notes (programmatic driving; `agent/spike/drive.py` is a working example ove
 | A15 | Every state-changing tool named in `require_approval_for_tools` AND annotated `destructiveHint` | Unnamed unannotated tools run ungated from chat and from Code Mode. Named tools are refused from Code Mode |
 | A16 | Start TrueForge with `OUTBOUND_URL_ALLOWED_HOSTS` for our MCP servers and `MCP_REQUEST_TIMEOUT_MS` above the longest `observe_wave` | SSRF guard rejects loopback URLs; default tool timeout 240 s |
 | A17 | Drive the agent over HTTP + SSE for tests and optional soak driver; approvals resume via a new turn | No Python SDK; API is small and stable enough |
+| A18 | **Partial rollout by hold.** `plan_rollout(exclude_hw_revs, exclusion_evidence_id)` holds whole hw_revs out of a plan, only with the evidence id of a failed rehearsal of the same version for each held hw_rev. The hold is a plan field plus a `hold` ledger event, shown by `get_rollout_state` (`held`) and listed in the final report. Rehearsal stays on ALL hw_revs (2026-09-26) | A fault in one cohort must not block the healthy cohort, and the exclusion must be justified by evidence and auditable. Implemented as an extension of `plan_rollout` (no new tool); a new plan is required, so the kept cohort is rehearsed again |
+| A19 | **Demo storyline** (2026-09-26): Scene 1 v1.3 blocked in rehearsal (all revs fail); Scene 2 v1.2 rehearsal passes rev A, fails rev B, so a partial rollout (rev A only, waves `[1, rest]`, every `start_wave` approved, rev B held with the evidence); Scene 3 v1.4 passes everywhere, full stratified rollout (lite: wave 1 = 2 devices, wave 2 = the rest, each `start_wave` approved). Supersedes the earlier "canary catches v1.2" story | The real lab shows the v1.2 leak (11 MB/min) inside a 90 s window, so the canary-catch story does not hold; the partial rollout shows the same judgement with real evidence. The regression path (halt, rollback, verify) is unit-tested but not in the scenes |
+| A20 | Single branch `master` in `~/wavebreak`; no worktrees or agent branch; any folder may be edited, environment changes are minimal and noted in `docs/IMPLEMENTATION.md` | Agent worktree merged; simpler workflow |
+| A21 | The driver retries transient provider errors (429 quota, `Cannot connect to API`, 503) with backoff by sending "continue" to the same session; `--auto-approve` is test-only and logs every approval it grants | Free-tier Gemini limits and occasional connection drops ended turns mid-rollout |
+| A22 | Start scripts (`agent/start_fleet_mcp.sh`, `agent/spike/start_trueforge.sh`) refuse to start when the port is taken, create `run/`, and use `.venv/bin/python`; `infra/aws/install.sh` starts both and registers the agent | A second copy silently shares or corrupts state; one script must bring up the demo |
+| A23 | Use a paid Gemini key for the demo | Free tier is capped at 20 requests per model per day: about one scene |
 
 ## 24. Sources
 

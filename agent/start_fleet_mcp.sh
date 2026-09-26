@@ -15,6 +15,8 @@ fi
 [[ -x .venv/bin/python ]] || { echo ".venv missing: python3 -m venv .venv && .venv/bin/pip install -r agent/requirements.txt" >&2; exit 1; }
 mkdir -p run
 export PYTHONPATH=.
+# One lab device at a time by default (3.5 GB local host); big hosts override, for example FLEET_LAB_PARALLEL=2.
+export FLEET_LAB_PARALLEL="${FLEET_LAB_PARALLEL:-1}"
 export FLEET_LEDGER_PATH="${FLEET_LEDGER_PATH:-run/fleet-ledger.sqlite}"
 nohup .venv/bin/python -m agent.fleet_mcp >> run/fleet-mcp.log 2>&1 &
 echo "fleet MCP pid $! (port $PORT, log run/fleet-mcp.log)"
