@@ -1,6 +1,6 @@
 # Wavebreak — Implementation Tracker
 
-**Objective**: finish all code and config for the production-like environment (Part A) before the build day, so the build day only goes into the agent. Code is written for everything; verification only where it's cheap (WSL has 3.5 GB RAM; the full system runs on AWS).
+**Objective**: finish the container-runtime MVP critical path from `docs/prompts/overnight.md`. Part A is complete; Firecracker and AWS launch remain parked. Do not edit `agent/`.
 
 - Instructions: [docs/prompts/overnight.md](prompts/overnight.md)
 - Design source of truth: [docs/architecture.md](architecture.md)
@@ -10,12 +10,12 @@ STATUS: IN PROGRESS
 ## How to use this file (loop runs)
 
 1. Pick the first task with status `todo` or `in-progress` whose dependencies are all `done` (or `parked` when the task can proceed without them).
-2. Mark it `in-progress`, commit. Do it. Verify at the cheapest meaningful level.
+2. Mark it `in-progress`, commit. Do it. Verify at the cheapest meaningful level; respect the ~2.5 GB Docker memory limit and run one smoke test at a time.
 3. Mark it `done` / `parked` / `blocked`, fill in **Verif** and **Notes**, add a Run log line, commit.
 
 **Status values**: todo, in-progress, done, parked, blocked.
 **Verification levels**: static (lint, config check, dry-run) → unit (pytest) → smoke (ran against real components) → unverified (code only). Add `unverified-local` when the code targets EC2 and cannot run in WSL.
-**Owners**: `orch` = main session (opus). Subagents: `scaffolder` (haiku), `implementer` (sonnet), `verifier` (haiku), `researcher` (haiku).
+**Owners**: `orch` = current session.
 **Table rule**: no pipe characters inside cells (the docs generator splits on them).
 
 ## Tasks
@@ -46,7 +46,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T3.1 | `scripts/build-bundles.sh`: tar each `sim/bundles/vX.Y` into `build/bundles/wavebreak-app-vX.Y.tar` + `.sha256`; deterministic tar (sorted, fixed mtime/owner) | scaffolder | T4.2 | done | static | Deterministic (sorted, fixed mtime/owner; rebuild gives same sha). Tar root: manifest.json, config.yaml, app/ |
 | T3.2 | `scripts/publish-bundles.sh`: discover SM and DS types via Management API; create SM per version, upload artifact, create DS; idempotent (lookup by name+version) | orch | T2.1, T3.1 | done | smoke | Ran twice against hawkBit 1.1.0: 5 SM + 5 DS created, second run no-op. POST bodies take type KEYS (application, app), not ids |
-| T3.3 | Smoke S1: hawkBit alone (H2, heap ~512 MB) + publish + one ota-agent process registers, gets v1.1, installs, reports success; tear down | verifier | T2.7, T3.2, T5.2 | todo | — | See §3 of prompt |
+| T3.3 | Smoke S1: hawkBit publish and DDI ota-agent install | orch | T2.7, T3.2, T5.2 | done | smoke | User confirms bundles/publish and DDI verified live against hawkBit; commits a167cdb and eece8f5 |
 
 ### M4 — inference-app
 
@@ -68,31 +68,31 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | done | static | architecture.md §5 Fluent Bit table; v5.1.2 apt repo |
-| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | implementer | T4.2, T5.3 | todo | — | Also the Firecracker rootfs source |
-| T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity (first boot: env or kernel cmdline → identity.env), boot-record (oneshot + ExecStop clean marker, boot_id per start), restarts-metric timer (NRestarts) | implementer | T6.2 | todo | — | |
-| T6.4 | Fluent Bit config: scrape node_exporter → remote_write; journald units inference-app, ota-agent, systemd; kmsg only when RUNTIME=firecracker; tail boot.log → Loki; labels device_id, hw_rev, region, fw_version from labels.env | implementer | T6.1, T6.3 | todo | — | Dry-run in the fluent-bit container |
-| T6.5 | Build image; static checks (hadolint if cheap, fluent-bit dry-run, one container boots to `running`); tear down | verifier | T6.4 | todo | — | Flags: `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock` |
-| T6.6 | Smoke S2: Prometheus + Loki + Grafana (capped) + one device container: labeled metrics and logs arrive; fw_version label changes after local install; tear down | verifier | T6.5, T2.4, T2.5, T10.1 | todo | — | |
-| T6.7 | Smoke S3: v1.2 on one rev B container with short leak timer; OOM kills + restarts visible in metrics and logs; rev A container stays flat; tear down | verifier | T6.6 | todo | — | |
+| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | static | Present in commit cd5fe0d; image has not been built |
+| T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | static | Units and helper scripts present in cd5fe0d; runtime behavior unverified |
+| T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
+| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | in-progress | — | User requested starting here. Flags: `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock` |
+| T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | todo | — | |
+| T6.7 | Smoke: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | todo | — | Critical path e2e coverage may satisfy this |
 
 ### M7 — Container runtime + fleet launcher + seed
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | done | static | yaml lint. rev B rule: device i is B iff ceil(i*0.4) > ceil((i-1)*0.4) |
-| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container (docker CLI, field network, systemd flags); deterministic IDs edge-001..; deterministic hw_rev/region assignment; pytest for the assignment and command generation | implementer | T7.1, T6.2 | todo | — | Firecracker backend added in T8.4 |
+| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container; deterministic IDs and assignments | orch | T7.1, T6.5 | todo | — | Container runtime only |
 | T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | todo | — | |
-| T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | scaffolder | T7.2, T7.3 | todo | — | |
+| T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | orch | T7.2, T7.3 | in-progress | static | Targets already exist; verify and repair integration |
 
 ### M8 — Firecracker runtime
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T8.1 | `sim/runtime/firecracker/fetch.sh`: latest release binary to ~/.local/bin; guest kernel from newest `firecracker-ci/vX.Y/<arch>/vmlinux-6.1.*` listing (fall back to older CI dirs) to ~/.local/share/firecracker | scaffolder | — | done | static | shellcheck; idempotent no-op run; `--dry-run` |
-| T8.2 | `sim/runtime/firecracker/build-rootfs.sh`: docker build → docker export → `fakeroot mkfs.ext4 -d` (rootless) → base.ext4; per-VM copy with `cp --reflink=auto --sparse=always` | orch | T6.3 | todo | — | fakeroot and mkfs.ext4 -d present locally |
-| T8.3 | Guest networking and identity: kernel `ip=` arg for static IP on field or lab bridge, `wavebreak.*` cmdline args → identity unit; RUNTIME=firecracker enables kmsg input | orch | T8.2 | todo | — | |
-| T8.4 | Firecracker backend in fleetctl: per-VM config JSON, API socket, serial log, pidfile under `run/fc/<id>/`; start/stop/status N VMs; tap assignment fc-field-N / fc-lab-N; memory 128 MB lite, 256 MB full | orch | T8.3, T7.2 | todo | — | |
-| T8.5 | Smoke S4: boot one VM (128 MB) to multi-user; ota-agent /status reachable; telemetry reaches backend if S2 stack is up; tear down | verifier | T8.4, N1 | todo | — | Needs host net (Needs human N1) |
+| T8.1 | Firecracker fetch script | orch | — | parked | — | Explicitly excluded from MVP critical path |
+| T8.2 | Firecracker rootfs build | orch | T6.3 | parked | — | Explicitly excluded from MVP critical path |
+| T8.3 | Firecracker guest networking and identity | orch | T8.2 | parked | — | Explicitly excluded from MVP critical path |
+| T8.4 | Firecracker backend in fleetctl | orch | T8.3, T7.2 | parked | — | Explicitly excluded from MVP critical path |
+| T8.5 | Firecracker VM smoke | orch | T8.4, N1 | parked | — | Explicitly excluded from MVP critical path |
 
 ### M9 — Lab controller
 
@@ -106,8 +106,8 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | scaffolder | T2.3 | todo | — | |
-| T10.2 | Dashboard "Wavebreak Fleet": devices by fw_version and hw_rev, app memory per device, restarts, OOM kills (Loki), boot events, rollout annotations | implementer | T10.1 | todo | — | JSON lint |
+| T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
+| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | todo | — | Critical path |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
 | T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
 
@@ -115,7 +115,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T11.1 | `wavebreak_clients/hawkbit.py`: list targets (attributes, installed DS), list DS, create rollout (filter query, groups, success/error conditions), start/pause/resume/stop, rollout + group status, assign DS, action status, download artifact; fixture tests | implementer | T2.1 | todo | — | Endpoints verified in T2.1 or S1 |
+| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | todo | — | Explicit start per wave is required by the agent |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
@@ -124,10 +124,10 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
-| T12.2 | `infra/aws/launch.sh`: variables at top, SG restricted to caller IP (22, 3000, 8080, MCP, lab API), key pair, 60 GB gp3, user-data → install.sh | implementer | T12.1 | todo | — | untested, mark clearly |
-| T12.3 | `infra/aws/install.sh` (idempotent): Docker, firecracker + kernel, setup-fc-net.sh, repo clone or rsync fallback, make up PROFILE=full → bundles → publish → fleet (firecracker, fallback container if no /dev/kvm) → seed → grafana-sa → print URLs and tokens | implementer | T12.2, T7.4, T8.1 | todo | — | |
-| T12.4 | Makefile complete: up, down, bundles, publish, fleet, fleet-down, seed, lab, view, test, lint, smoke-*, all; `.env.example` complete (Grafana + MCP, hawkBit Mgmt + MCP, lab controller, DDI token) | scaffolder | T12.3 | todo | — | |
-| T12.5 | Final pass: docs match code, runbook section in architecture.md (AWS + local fallback), STATUS: COMPLETE | orch | all | todo | — | |
+| T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
+| T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
+| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | todo | — | Do not add unrelated full/AWS targets |
+| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | todo | — | |
 
 ## Needs human
 
@@ -140,7 +140,9 @@ STATUS: IN PROGRESS
 
 | ID | Reason | What the build day needs to do |
 |----|--------|-------------------------------|
-| — | — | — |
+| Firecracker runtime (T8.1–T8.5) | Outside container-only MVP scope | Resume only if the build requires Firecracker |
+| AWS launch (T12.2–T12.3) | Outside MVP scope | Deploy container fallback manually only if needed |
+| Extra docs polish, AWS/full profile, optional MCP integration work | Outside MVP scope | Do not resume for this handoff |
 
 ## Run log
 
@@ -149,3 +151,4 @@ STATUS: IN PROGRESS
 | 2026-09-25 22:15 | 1 (interactive) | Part A: prompt saved, pre-flight, T1.1–T1.3, tracker, subagents, overnight loop |
 | 2026-09-25 22:30 | 1 (interactive, after go) | Re-checked N1 (host net up) and N2 (pushed); loop ready |
 | 2026-09-26 | MVP run | T2.3–T2.7 backend compose, configs, hawkbit-config.sh, fetch-hawkbit-mcp.sh |
+| 2026-09-26 | Codex handoff audit | Reconciled tracker with repository; Part A skipped; container MVP scope recorded; agent-design pointer added |

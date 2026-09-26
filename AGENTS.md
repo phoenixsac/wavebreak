@@ -24,6 +24,7 @@ An update installs fine, then fails at runtime (memory leak → OOM kill loop on
 
 - **Part A (overnight, now)**: complete production-like environment. Tracker: `docs/IMPLEMENTATION.md`. Instructions: `docs/prompts/overnight.md`.
 - **Part B (build day)**: the rollout-manager agent: inventory → rehearse in lab → canary waves 2 → 5 → all → verify → promote, halt, or roll back with human approval. Not built yet.
+- Part B agent design: `docs/agent-design.md`.
 
 ## 5. Environment Design (summary; details in docs/architecture.md)
 
