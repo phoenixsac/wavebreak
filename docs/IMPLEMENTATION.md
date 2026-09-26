@@ -34,11 +34,13 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T2.1 | Research hawkBit: current image names and tags (`hawkbit/hawkbit-update-server` or split images), official compose DB, env for H2, JVM heap cap, DDI gateway-token config (tenant config API), Management API basic auth, OpenAPI URL, artifact storage location. Record in architecture.md §5 and §10 | researcher | — | done | static | Recorded in architecture.md §5; image inspected; endpoint shapes TODO(verify) in S1 |
 | T2.2 | Research hawkBit MCP server: does it exist in a release/image, transport, port, tools. Include in compose if an image exists; else park | researcher | T2.1 | done | static | hawkbit-mcp-server 1.1.0 jar on Maven Central (standalone, streamable HTTP, 8081). Run on hawkBit image JRE, host port 8082. Fetch script + compose service in T2.3 |
-| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | done | smoke (hawkBit only) | Networks backend, wavebreak_field, wavebreak_lab (internal). Profiles full (MySQL), mcp (jar). hawkBit booted lite (414 MiB), lab user read-only verified (GET 200, POST 403). Image has no curl, no actuator: wait on /v3/api-docs |
+| T2.3 | `platform/docker-compose.yml`: networks backend, field, lab (lab `internal: true`); services hawkbit (lite H2, heap cap), prometheus (`--web.enable-remote-write-receiver`), loki, grafana; memory limits; `.env` driven; profile `full` adds hawkBit DB | scaffolder | T2.1 | done | smoke | Networks backend, wavebreak_field, wavebreak_lab (internal). Profiles full (MySQL), mcp (jar). hawkBit booted lite; lab user can read software modules and download artifact, target creation returns 403. Image has no curl, no actuator: wait on /v3/api-docs |
 | T2.4 | `platform/prometheus/prometheus.yml` (self-scrape only; devices push via remote_write) + `promtool check config` | scaffolder | T2.3 | done | static | promtool check config SUCCESS |
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | done | static | loki -verify-config rc 0 (3.5.0) |
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
 | T2.7 | hawkBit tenant bootstrap script `scripts/hawkbit-config.sh`: enable gateway-token auth, set token from `.env`, set polling interval | orch | T2.1 | done | smoke | Verified against running server. Min polling 30s by default; lowered with -Dhawkbit.controller.minPollingTime=00:00:05, 10s accepted |
+| T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | done | smoke | Configured file-backed H2 in the writable artifact volume with `MODE=LEGACY`; republished v1.0–v1.4, restarted hawkBit, and verified all five distribution sets remained. |
+| T2.9 | Optional separate hawkBit UI image matching server 1.1.0; enabled by full and opt-in for lite, Management API URL and heap cap | orch | T2.3 | done | smoke | Verified Docker Hub tag 1.1.0 and image settings; lite opt-in UI returned login redirect at :8081, used `HAWKBIT_SERVER_MGMT_URL`, and runs with `-Xmx384m` (about 238 MiB resident). Full profile selection and Compose config verified statically. |
 
 ### M3 — Bundles + publish
 
@@ -68,10 +70,10 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T6.1 | Research Fluent Bit: exact plugin names and options for prometheus_scrape, prometheus_remote_write, systemd (journald), kmsg, tail, loki (labels from env, record accessor), and dry-run flag; pinned version and Debian install method | researcher | — | done | static | architecture.md §5 Fluent Bit table; v5.1.2 apt repo |
-| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | static | Present in commit cd5fe0d; image has not been built |
-| T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | static | Units and helper scripts present in cd5fe0d; runtime behavior unverified |
-| T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
-| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Image built. Container booted, identity + inference-app + node_exporter active, labels v1.0 correct. Fixed identity temp-file handling; OTA local API was confirmed to require LAB_DEVICE_TOKEN; telemetry-off correctly skips Fluent Bit. |
+| T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | smoke | Rebuilt `wavebreak-device:local` from current source; systemd container boot verified in T6.5 |
+| T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | smoke | Latest image boot: identity, inference-app, node_exporter, ota-agent active; e2e exercised OOM restart and restart metric. |
+| T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | smoke | Lite fleet metrics reached Prometheus with device/fw labels and device logs reached Loki; Fluent Bit restarted on OTA label changes. |
+| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Rebuilt `wavebreak-device:local` from current source. Fresh systemd container booted with identity, app, node_exporter, and local ota-agent active; labels correct and `WAVEBREAK_FRAME_SCALE=0.7` persisted. Removed smoke container. |
 | T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | done | smoke | Lite fleet sent device/fw_version-labeled app metrics to Prometheus and logs to Loki. During e2e, edge-001 metrics changed through v1.2 and v1.1 after installs; fleet was removed afterward. |
 | T6.7 | E2E: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | done | smoke | `scripts/e2e.sh` assigned v1.2 to rev-B edge-001, observed `wavebreak_app_restarts_total` reach 1, reinstalled v1.1, confirmed active app + labeled frames metric, and removed the lite fleet. |
 
@@ -98,18 +100,18 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T9.1 | `lab/controller` (FastAPI): POST /lab/devices, POST /lab/devices/{id}/install, GET /lab/devices/{id}/summary, DELETE /lab/devices/{id}, GET /lab/devices; token auth; backend abstraction container or firecracker; read-only hawkBit artifact download; memory trend sampler; pytest with fake device and fake hawkBit | implementer | T5.3, T7.2 | todo | — | Agent gets only this API |
-| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | scaffolder | T9.1, T2.3 | todo | — | Controller needs docker socket; the agent never does |
-| T9.3 | Smoke S5: create one lab device, install a bundle fetched from hawkBit, read summary; tear down | verifier | T9.2, T3.3 | todo | — | |
+| T9.1 | Minimal container lab API: create devices at requested version/revision, install read-only hawkBit artifacts, summary, list, delete; token auth and memory/OOM reporting | orch | T5.3, T7.2 | done | smoke | Created rev-B lab-001 at v1.1 from a verified hawkBit download; summary showed active unit, 11.9 MB app cgroup memory, 0 restarts/OOMs; list and delete worked. |
+| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | orch | T9.1, T2.3 | done | smoke | `make lab PROFILE=lite` built and started controller; `/healthz` returned ready. Controller owns Docker socket; device isolated on `wavebreak_lab`. |
+| T9.3 | Smoke S5: create one lab device, install a bundle fetched from hawkBit, read summary; tear down | verifier | T9.2, T3.3 | done | smoke | Live hawkBit lab user reads module/artifact (200) but cannot create target (403); one rev-B device installed v1.1 and was removed after summary. |
 
 ### M10 — Grafana + MCP
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
-| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | todo | — | Critical path |
+| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | done | smoke | Provisioned dashboard API lists five panels; Grafana PromQL and Loki LogQL accepted the panel queries. |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
-| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
+| T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | orch | T10.1 | done | smoke | `make grafana-sa` rotated the token twice, kept one Viewer service account/token, authenticated with the stored token, and restarted mcp-grafana both times. |
 
 ### M11 — wavebreak_clients
 
@@ -117,7 +119,7 @@ STATUS: IN PROGRESS
 |----|------|-------|---------|--------|-------|-------|
 | T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | done | smoke | Live hawkBit OpenAPI verified. Created an unstarted rollout for edge-001; it settled at ready with one group while installedDS remained v1.0. start is a separate method. Ruff passes. |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
-| T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
+| T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | parked | — | Agent-side HTTP wrapper is outside the minimal controller MVP; controller endpoints are live and documented for the separate agent branch. |
 
 ### M12 — AWS + runbook + final docs
 
@@ -126,8 +128,18 @@ STATUS: IN PROGRESS
 | T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
 | T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
-| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | todo | — | Do not add unrelated full/AWS targets |
-| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | todo | — | |
+| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
+| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | done | smoke | Runbook commands, Compose profiles, tracker statuses, and live service state checked; lab API, hawkBit API/UI, and five-panel Grafana dashboard respond. No field or lab device containers left running. |
+
+### M13 — Repeatable demo operations
+
+| ID | Task | Owner | Depends | Status | Verif | Notes |
+|----|------|-------|---------|--------|-------|-------|
+| T13.1 | `make demo-reset`: cancel active hawkBit work, seed four healthy lite devices at v1.1 with a 2/2 revision mix, clear lab | orch | T2.8, T7.4, T9.2 | done | smoke | Repeated twice against live services in 22s and 42s; verifies installedDS, active app units, positive current-version frames/FPS, zero restarts, 2 rev A + 2 rev B, and empty lab. Hard deadline 175s. |
+| T13.2 | Grafana read-only service account token script and restart mcp-grafana | orch | T10.1 | done | smoke | `make grafana-sa` creates/reuses a Viewer account, rotates and stores its token, and recreates mcp-grafana with the token. |
+| T13.3 | `make demo-status`: fleet, rollout, lab, health, and URLs summary | orch | T13.1 | done | smoke | Live output grouped versions by hw_rev, showed four healthy v1.1 devices, no active rollouts/lab devices, and local service URLs. |
+| T13.4 | Review AWS install script for today's changes without running it | orch | T13.1–T13.3 | blocked | static | Could not review or reconcile H2 persistence, UI, lab, dashboard, or demo reset: `infra/aws/install.sh` is absent from the working tree and tracked HEAD contains only `infra/aws/.gitkeep`. Do not use the AWS runbook until an installer is added and reviewed. Did not run it. |
+| T13.5 | Update architecture runbook with demo commands | orch | T13.1–T13.4 | done | static | Added exact reset/status/token commands, demo state guarantees and cleanup, service URLs, and the missing AWS bootstrap limitation. |
 
 ## Needs human
 
@@ -142,7 +154,7 @@ STATUS: IN PROGRESS
 |----|--------|-------------------------------|
 | Firecracker runtime (T8.1–T8.5) | Outside container-only MVP scope | Resume only if the build requires Firecracker |
 | AWS launch (T12.2–T12.3) | Outside MVP scope | Deploy container fallback manually only if needed |
-| Extra docs polish, AWS/full profile, optional MCP integration work | Outside MVP scope | Do not resume for this handoff |
+| Full-profile live fleet smoke, Grafana service-account automation, and agent-side lab wrapper | Outside local MVP scope; full fleet exceeds the local memory cap and the agent runs on another branch | Use the full profile on a sufficiently provisioned host; implement agent-side clients with the agent integration |
 
 ## Run log
 
@@ -158,3 +170,15 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex MVP | Verified Makefile fleet and seed integration (T7.4) |
 | 2026-09-26 | Codex MVP | Added hawkBit Management API client; verified a ready one-group rollout stays unstarted (T11.1) |
 | 2026-09-26 | Codex MVP | Ran v1.2 OOM → v1.1 recovery e2e on edge-001; fleet cleaned up (T6.7) |
+| 2026-09-26 | Codex MVP | Persisted lite H2, republished releases, restarted hawkBit, and verified v1.0–v1.4 survived (T2.8) |
+| 2026-09-26 | Codex MVP | Rebuilt latest device image, verified frame-scale env and quick boot, removed smoke container (T6.5) |
+| 2026-09-26 | Codex build | Completed and smoke-tested isolated lab controller with read-only hawkBit artifact access; deleted lab device (T9.1–T9.3) |
+| 2026-09-26 | Codex build | Provisioned Wavebreak Fleet dashboard; verified Grafana loads five panels and Prometheus/Loki accept all queries (T10.2) |
+| 2026-09-26 | Codex build | Added separate optional hawkBit UI 1.1.0; smoke-tested lite opt-in at :8081 with a 384 MiB heap cap (T2.9) |
+| 2026-09-26 | Codex build | Reconciled T6.2, completed Makefile/env coverage, and parked optional Grafana SA + agent-side lab client tasks outside the local MVP |
+| 2026-09-26 | Codex build | Final consistency pass: lint/compile/config/API checks passed; marked container MVP complete (T12.5) |
+| 2026-09-26 | Codex follow-up | Added repeatable lite demo reset; two live runs completed in 22s and 42s (T13.1) |
+| 2026-09-26 | Codex follow-up | Added idempotent Grafana Viewer token rotation and restarted mcp-grafana with the stored token (T10.4, T13.2) |
+| 2026-09-26 | Codex follow-up | Added `make demo-status`; verified the live v1.1 fleet, rollout/lab state, and service URLs (T13.3) |
+| 2026-09-26 | Codex follow-up | AWS installer review blocked: `infra/aws/install.sh` is absent; confirmed tracked `infra/aws` has only `.gitkeep`; did not run it (T13.4) |
+| 2026-09-26 | Codex follow-up | Updated architecture runbook with demo reset, status, Grafana token setup, cleanup, URLs, and AWS readiness limitation (T13.5) |

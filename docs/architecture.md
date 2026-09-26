@@ -70,7 +70,8 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph backend["Backend zone"]
-        hb["hawkBit<br/><i>update server + UI</i><br/>:8080"]
+        hb["hawkBit update server<br/><i>DDI + Management API</i><br/>:8080"]
+        hbui["hawkBit UI<br/><i>optional separate image</i><br/>:8081"]
         hbdb[("hawkBit DB<br/><i>full profile only;<br/>lite uses H2</i>")]
         prom["Prometheus<br/><i>remote-write receiver</i><br/>:9090"]
         loki["Loki<br/>:3100"]
@@ -92,6 +93,7 @@ flowchart LR
     agent["Rollout Agent"]
 
     d1 & dn -- "DDI poll" --> hb
+    hbui -- "Management API" --> hb
     d1 & dn -- "remote_write" --> prom
     d1 & dn -- "Loki push" --> loki
     hb --- hbdb
@@ -181,16 +183,17 @@ Bundle layout: `sim/bundles/vX.Y/{manifest.json, app/, config.yaml}` → `build/
 
 ### 3.4 Rehearsal Lab
 
-- `lab/controller` (FastAPI, token auth). The agent gets only this API: no Docker socket, no root.
-- Boots throwaway devices at a version, installs a candidate fetched **read-only** from hawkBit's Management API, and reports a summary read directly from the device (ota-agent `/status` + node_exporter scrape).
-- Isolation: container runtime → internal Docker network with no route to the backend (controller attaches to both); Firecracker → `wblab0` bridge without NAT or forwarding.
+- `lab/controller` (FastAPI, token auth). The agent gets only this API: no Docker socket, no root. The controller alone mounts the Docker socket.
+- Boots throwaway devices at a requested revision and version, installs a candidate fetched **read-only** from hawkBit's Management API, and reports a summary read directly from the device (ota-agent `/status` + node_exporter scrape).
+- Isolation: container runtime → internal Docker network `wavebreak_lab` with no route to the backend; the controller attaches to `backend` and `wavebreak_lab`. Firecracker → `wblab0` bridge without NAT or forwarding.
 - Lab devices never talk to production hawkBit, Prometheus, or Loki (ota-agent in local mode, Fluent Bit outputs disabled).
 
 ### 3.5 Backend
 
 | Service | Role | Notes |
 |---------|------|-------|
-| hawkBit | update server + UI | lite: embedded H2, heap capped. full: DB from hawkBit's official compose |
+| hawkBit update server | DDI + Management API | `hawkbit/hawkbit-update-server:1.1.0`; lite: file-backed H2 in artifact volume, heap capped. full: MySQL |
+| hawkBit UI | Optional browser UI, separate image | `hawkbit/hawkbit-ui:1.1.0`; full profile enables it, lite requires `HAWKBIT_UI=1`; UI calls the server Management API |
 | Prometheus | metrics | `--web.enable-remote-write-receiver`; devices push |
 | Loki | logs | single binary, filesystem storage |
 | Grafana | dashboards | provisioned datasources + "Wavebreak Fleet" dashboard |
@@ -325,16 +328,18 @@ hawkBit server facts (T2.1; image inspected, rest read from docs):
 
 | Item | Value |
 |------|-------|
-| Image | `hawkbit/hawkbit-update-server:1.1.0` (monolith: UI, DDI, Management API; `PROFILES=h2` default). Split images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
+| Image | `hawkbit/hawkbit-update-server:1.1.0` (DDI + Management API; `PROFILES=h2` default). The UI is a separate image. Split server images `hawkbit-ddi-server`, `hawkbit-mgmt-server` exist; not used |
 | Heap | entrypoint uses `X_MS`, `X_MX`, `XX_MAX_METASPACE_SIZE`, `XX_METASPACE_SIZE`, `JAVA_OPTS` env (defaults 768m heap, 250m metaspace) |
 | DB (full) | official compose `docker/mysql/docker-compose-monolith-mysql.yml`: `PROFILES=mysql`, `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` |
-| Users | default admin/admin; `hawkbit.server.im.users[n].username/password/permissions` (e.g. `READ_REPOSITORY,READ_TARGET` for the read-only lab user) |
+| Users | default admin/admin; lab uses `hawkbit.security.user.lab.{tenant,password,permissions}` with target, distribution-set, and software-module read authorities |
 | Tenant | `DEFAULT` |
 | Tenant configs | `PUT /rest/v1/system/configs/{key}` body `{"value": ...}`; keys `authentication.gatewaytoken.enabled`, `authentication.gatewaytoken.key`, `authentication.targettoken.enabled`, `pollingTime` (`HH:MM:SS`) |
 | Artifacts | `org.eclipse.hawkbit.repository.file.path` (default `./artifactrepo`, i.e. `/app/artifactrepo`) |
 | OpenAPI | `http://<host>:8080/swagger-ui/index.html`, JSON `/v3/api-docs` (verified; no `/actuator/health`, image has no curl) |
-| Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab user with `READ_REPOSITORY,READ_TARGET`: GET 200, POST 403 |
+| Users (verified) | `-Dhawkbit.security.user.<name>.{tenant,password,roles,permissions}`; password `{noop}...`. Lab can list software modules and download artifacts; target creation returns 403 |
 | Polling (verified) | tenant `pollingTime` min is 30s unless `-Dhawkbit.controller.minPollingTime=00:00:05`; tenant config path is `/rest/v1/system/configs/{key}` |
+
+hawkBit UI facts: Docker Hub publishes [`hawkbit/hawkbit-ui:1.1.0`](https://hub.docker.com/r/hawkbit/hawkbit-ui/tags), matching the server release. It runs on Java 21, listens on `PORT` (default 8088), and reads the Management API URL from `hawkbit.server.mgmt-url` (`HAWKBIT_SERVER_MGMT_URL`). Compose sets port 8080 inside the container, maps host port 8081, and caps heap at 384 MiB. `make up PROFILE=full` enables it; lite enables it with `make up PROFILE=lite HAWKBIT_UI=1`. The UI login is the hawkBit user; `.env` defaults to `admin` / `admin`.
 
 hawkBit MCP server (T2.2): standalone Spring Boot jar `org.eclipse.hawkbit:hawkbit-mcp-server:1.1.0` on Maven Central (54 MB, no build needed). Runs on the JRE of the hawkBit image (`java -jar`). Properties: `server.port=8081`, `spring.ai.mcp.server.protocol=STREAMABLE` (path `/mcp`, TODO(verify) S1), `hawkbit.mcp.mgmt-url=${HAWKBIT_URL}`. Clients send their own hawkBit credentials as `Authorization: Basic ...`; the server validates them against hawkBit and forwards. Operation switches: `hawkbit.mcp.operations.delete-enabled`, `hawkbit.mcp.operations.rollouts.start-enabled`, `...approve-enabled`. Tools cover targets, target filters, software modules, distribution sets, rollouts (create/start/pause/resume/stop/approve/deny/retry/trigger-next-group), actions.
 
@@ -422,14 +427,15 @@ Labels come from `/etc/wavebreak/labels.env` via the unit's `EnvironmentFile`; `
 
 | Port | Service |
 |------|---------|
-| 8080 | hawkBit (UI, DDI, Management API) |
+| 8080 | hawkBit DDI + Management API |
+| 8081 | hawkBit UI (optional; UI container port 8080) |
 | 9090 | Prometheus |
 | 3100 | Loki |
 | 3000 | Grafana |
 | 8082 | hawkBit MCP (container 8081, `/mcp`) |
 | 8000 | mcp-grafana (`-t streamable-http`, path `/mcp`) |
 | 8090 | Lab controller |
-| 8081 | ota-agent local API (lab devices) |
+| 8081 | ota-agent local API (inside each lab device container) |
 | 9100 | node_exporter (device-local) |
 
 ---
@@ -513,9 +519,9 @@ Every series carries `device_id`, `hw_rev`, `region`, `fw_version` (added by Flu
 | Runtime | container; Firecracker for one-VM smoke | firecracker (fallback container if no `/dev/kvm`) |
 | Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via `--cpu-options NestedVirtualization=enabled` (AWS CLI >= 2.36), Ubuntu 24.04, 60 GB gp3 |
 | Access | localhost | SG restricted to caller IP: 22, 3000, 8080, MCP, 8090 |
-| Bootstrap | Makefile targets | `infra/aws/launch.sh` → user-data → `infra/aws/install.sh` |
+| Bootstrap | Makefile targets | Not ready: `infra/aws/launch.sh` and `infra/aws/install.sh` are absent from the repository |
 
-Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
+Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `grafana-sa`, `demo-reset`, `demo-status`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
 
 ---
 
@@ -543,12 +549,17 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D18 | Part A is built by an overnight headless Claude loop with cheap subagents | Save build-day tokens for the agent | 2026-09-25 |
 | D19 | hawkBit MCP runs the Maven Central jar on the hawkBit image's JRE (fetched by `scripts/fetch-hawkbit-mcp.sh` into `build/`) | No official image; no local Maven build (RAM) | 2026-09-25 |
 | D20 | Release source lives in `sim/bundles/vX.Y/` (full copies); `sim/inference-app/` holds the shared tests | Releases must be real, diffable code; bundles are what hawkBit ships | 2026-09-25 |
-| D22 | Lite hawkBit uses in-memory H2 (image default); state resets on container recreate, rerun `make publish seed` | Simplest; no H2 URL override that could clash with the full profile | 2026-09-26 |
+| D22 | Lite hawkBit uses file-backed H2 at `/app/artifactrepo/hawkbit-h2` with `MODE=LEGACY`; database and artifacts persist in the `hawkbit-artifacts` volume | hawkBit's image-default H2 state had no database file and disappeared with container recreation. H2 2.x also needs legacy mode for hawkBit's `CALL IDENTITY()` sequence query | 2026-09-26 |
 | D21 | Rev B assignment: device i is B iff ceil(0.4 i) > ceil(0.4 (i-1)) | Deterministic, evenly spread; edge-001 is B so a 2-device canary wave includes rev B | 2026-09-25 |
-| D23 | If lite hawkBit starts with empty H2 state, rerun the idempotent bundle build/publish flow before seeding | A fresh embedded-H2 state had no release distribution sets; publishing restored v1.0–v1.4 | 2026-09-26 |
+| D23 | If lite hawkBit's persistent volume is intentionally removed, run `make publish` to recreate release data and `make seed` to align registered devices | The idempotent publisher restored v1.0–v1.4 after the original ephemeral database was lost | 2026-09-26 |
 | D24 | Device identity setup creates temporary files under `/run/wavebreak` and removes them with an exit trap | The `/tmp` file was missing during an early systemd boot; moving both files into the unit's runtime directory made identity initialization reliable | 2026-09-26 |
 | D25 | Fleet `frame_scale` is passed as `WAVEBREAK_FRAME_SCALE` into the device environment | Lets the profile control simulated frame allocation rate; identity setup must preserve the exact app variable name | 2026-09-26 |
 | D26 | E2E restart checks take the maximum over matching Prometheus series and scope the baseline to the installed firmware version | Remote-write retains series across firmware label changes and older versions can remain visible | 2026-09-26 |
+| D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
+| D28 | Grafana's `Wavebreak Fleet` dashboard is provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` and reads Prometheus metrics plus Loki runtime logs | One checked-in dashboard exposes version mix, app memory, restarts, FPS, and OOM/killed-process evidence | 2026-09-26 |
+| D29 | hawkBit UI is a separate optional 1.1.0 service, with a 384 MiB JVM heap cap, enabled by default in full and only by `HAWKBIT_UI=1` in lite | Keep the browser UI available for full deployments without adding its Java process to the memory-constrained lite backend by default | 2026-09-26 |
+| D30 | `make demo-reset` stops active hawkBit rollouts, cancels active target actions, then explicitly assigns v1.1 to four lite devices and waits for successful install reports plus healthy app telemetry; it also deletes all lab devices | Repeated agent demos start from a known 2-rev-A / 2-rev-B state; verified live in under 45 seconds | 2026-09-26 |
+| D31 | `make grafana-sa` rotates a Grafana Viewer token into local `.env` and recreates mcp-grafana with that token | Keep MCP access read-only and make token replacement reproducible | 2026-09-26 |
 
 ---
 
@@ -567,7 +578,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | Q9 | Current hawkBit image names (monolith vs split DDI/Mgmt images) | **Resolved** T2.1: monolith `hawkbit/hawkbit-update-server:1.1.0` |
 | Q10 | Fluent Bit `prometheus_remote_write` output: supports adding static labels? | **Resolved** T6.1: `add_label <name> <value>`, repeatable |
 | Q11 | mcp-grafana network transport flag and port | **Resolved** T10.3: image `grafana/mcp-grafana`, `-t streamable-http -address 0.0.0.0:8000`, path `/mcp`, env `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`, `--disable-write`; optional `MCP_GRAFANA_SERVER_TOKEN` for caller auth |
-| Q12 | Read-only hawkBit user for the lab controller (permission config) | T2.1 docs: `hawkbit.server.im.users[1].permissions=READ_REPOSITORY,READ_TARGET`; TODO(verify) S1 |
+| Q12 | Read-only hawkBit user for the lab controller (permission config) | **Resolved** T9.3: lab user reads bundle metadata and artifact download; target creation returns 403. Use granular authorities in D27 |
 | Q13 | Can the host reach containers on a Docker `internal: true` network | TODO(verify) T9.2 |
 | Q14 | AWS CLI syntax for nested virtualization on M8i | **Resolved** T12.1 (docs read): `aws ec2 run-instances --cpu-options NestedVirtualization=enabled`, AWS CLI v2 >= 2.36; AMI `resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id` (gp2 path also exists). AWS CLI not installed locally |
 
@@ -587,4 +598,36 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 
 ## 12. Runbook
 
-> Filled in by T12.5 with exact commands for AWS and the local fallback.
+### Local container MVP (lite)
+
+```bash
+cp .env.example .env
+make up PROFILE=lite
+make bundles publish
+make grafana-sa
+make demo-reset
+make demo-status
+scripts/e2e.sh
+```
+
+`make demo-reset` brings up the four lite devices and lab controller, stops active hawkBit rollouts, cancels active actions, assigns v1.1, waits for all devices to report v1.1 and pass app/telemetry health checks, and empties the lab. It is safe to repeat; recent live runs completed in 22–42 seconds. `make demo-status` prints versions grouped by hardware revision, per-device health, active rollouts, lab devices, and service URLs. Run `make demo-reset` again before each agent demo.
+
+Grafana is at `http://localhost:3000` (`admin` / `GRAFANA_ADMIN_PASSWORD`, default `admin`). `make grafana-sa` creates or reuses a Viewer service account, rotates its token into `.env`, and restarts mcp-grafana. The optional hawkBit UI is at `http://localhost:8081` (`admin` / `HAWKBIT_PASSWORD`, default `admin`) when enabled with `make up PROFILE=lite HAWKBIT_UI=1`. The lab controller is at `http://localhost:8090`. Lite hawkBit uses file-backed H2 in the `hawkbit-artifacts` volume. If that volume is intentionally removed, run `make bundles publish` and `make demo-reset` again.
+
+When finished, run `make fleet-down PROFILE=lite RUNTIME=container` and `make down`.
+
+Optional lite hawkBit browser UI:
+
+```bash
+make up PROFILE=lite HAWKBIT_UI=1
+```
+
+Open `http://localhost:8081` and log in as `admin` with `HAWKBIT_PASSWORD` from `.env` (default `admin`).
+
+### Full profile
+
+On a host with memory for the full backend and 20-device fleet, `make up PROFILE=full` starts MySQL and the hawkBit UI by default. Continue with `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, and `make seed PROFILE=full`. The UI uses the same `http://localhost:8081` URL and admin credentials described above.
+
+### AWS readiness
+
+The repository currently has no `infra/aws/launch.sh` or `infra/aws/install.sh`; only `infra/aws/.gitkeep` is tracked. The AWS install procedure has not been reviewed against persistent H2, the separate hawkBit UI, the lab controller, the provisioned Grafana dashboard, or demo reset. Do not treat the AWS bootstrap row above as executable until those scripts are added and reviewed. The installer review requested for this build is tracked as blocked.

@@ -1,5 +1,5 @@
 # Wavebreak backend zone. Variables come from ../.env (see .env.example).
-# PROFILE=lite: hawkBit on embedded H2. PROFILE=full: `--profile full` adds MySQL.
+# PROFILE=lite: file-backed H2 in the artifact volume. PROFILE=full: `--profile full` adds MySQL.
 # `--profile mcp` adds the hawkBit MCP server (needs scripts/fetch-hawkbit-mcp.sh first).
 name: wavebreak
 
@@ -13,6 +13,7 @@ networks:
 
 volumes:
   hawkbit-artifacts:
+    # Lite H2 database lives alongside artifacts in this persistent volume.
   hawkbit-db:
   prometheus-data:
   loki-data:
@@ -44,12 +45,12 @@ services:
       X_MX: ${HAWKBIT_HEAP:-512m}
       XX_METASPACE_SIZE: 128m
       XX_MAX_METASPACE_SIZE: 200m
-      # Admin (TENANT_ADMIN) and read-only lab user; keys verified in TenantAwareUserProperties (1.1.0)
+      # hawkBit 1.1.0 tenant-aware users: admin plus read-only lab artifact access.
       JAVA_OPTS: >-
         -Dhawkbit.security.user.admin.password={noop}${HAWKBIT_PASSWORD:-admin}
         -Dhawkbit.security.user.lab.tenant=DEFAULT
         -Dhawkbit.security.user.lab.password={noop}${HAWKBIT_LAB_PASSWORD:-lab}
-        -Dhawkbit.security.user.lab.permissions=READ_REPOSITORY,READ_TARGET
+        -Dhawkbit.security.user.lab.permissions=READ_TARGET,READ_DISTRIBUTION_SET,READ_DISTRIBUTION_SET_TYPE,READ_SOFTWARE_MODULE,READ_SOFTWARE_MODULE_TYPE,READ_SOFTWARE_MODULE_ARTIFACT
         -Dhawkbit.controller.minPollingTime=00:00:05
     volumes:
       - hawkbit-artifacts:/app/artifactrepo
@@ -61,6 +62,23 @@ services:
         condition: service_healthy
         required: false
     mem_limit: ${HAWKBIT_MEM:-900m}
+    restart: unless-stopped
+
+  hawkbit-ui:
+    image: ${HAWKBIT_UI_IMAGE:-hawkbit/hawkbit-ui:1.1.0}
+    profiles: [full, hawkbit-ui]
+    environment:
+      PORT: "8080"
+      HAWKBIT_SERVER_MGMT_URL: http://hawkbit:8080
+      X_MS: 64m
+      X_MX: ${HAWKBIT_UI_HEAP:-384m}
+      XX_METASPACE_SIZE: 128m
+      XX_MAX_METASPACE_SIZE: 192m
+    ports:
+      - "${HAWKBIT_UI_PORT:-8081}:8080"
+    networks: [backend]
+    depends_on: [hawkbit]
+    mem_limit: ${HAWKBIT_UI_MEM:-640m}
     restart: unless-stopped
 
   hawkbit-mcp:
@@ -126,6 +144,28 @@ services:
     networks: [backend]
     depends_on: [prometheus, loki]
     mem_limit: 256m
+    restart: unless-stopped
+
+  lab-controller:
+    profiles: [lab]
+    build:
+      context: ..
+      dockerfile: lab/controller/Dockerfile
+    environment:
+      LAB_API_TOKEN: ${LAB_API_TOKEN:-change-me-lab-token}
+      LAB_DEVICE_TOKEN: ${LAB_DEVICE_TOKEN:-change-me-lab-device-token}
+      LAB_DEVICE_IMAGE: wavebreak-device:local
+      LAB_DOCKER_NETWORK: wavebreak_lab
+      HAWKBIT_URL: http://hawkbit:8080
+      HAWKBIT_LAB_USERNAME: ${HAWKBIT_LAB_USERNAME:-lab}
+      HAWKBIT_LAB_PASSWORD: ${HAWKBIT_LAB_PASSWORD:-lab}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${LAB_CONTROLLER_PORT:-8090}:8090"
+    networks: [backend, lab]
+    depends_on: [hawkbit]
+    mem_limit: 128m
     restart: unless-stopped
 
   mcp-grafana:
