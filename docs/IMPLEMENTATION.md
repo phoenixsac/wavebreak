@@ -80,7 +80,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | done | static | yaml lint. rev B rule: device i is B iff ceil(i*0.4) > ceil((i-1)*0.4) |
-| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container; deterministic IDs and assignments | orch | T7.1, T6.5 | in-progress | — | Container runtime only |
+| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container; deterministic IDs and assignments | orch | T7.1, T6.5 | done | smoke | Implemented Docker field-network lifecycle and env wiring; `make fleet PROFILE=lite RUNTIME=container` launched 4 devices, all expected services active and all four registered in hawkBit. |
 | T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | todo | — | |
 | T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | orch | T7.2, T7.3 | in-progress | static | Targets already exist; verify and repair integration |
 
@@ -153,3 +153,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | MVP run | T2.3–T2.7 backend compose, configs, hawkbit-config.sh, fetch-hawkbit-mcp.sh |
 | 2026-09-26 | Codex handoff audit | Reconciled tracker with repository; Part A skipped; container MVP scope recorded; agent-design pointer added |
 | 2026-09-26 | Codex MVP | Built device image and booted one container; fixed identity startup temp-file bug (T6.5) |
+| 2026-09-26 | Codex MVP | Implemented fleetctl container up/down/status/logs; lite fleet booted and registered (T7.2) |
