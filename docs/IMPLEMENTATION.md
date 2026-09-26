@@ -99,8 +99,8 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T9.1 | `lab/controller` (FastAPI): POST /lab/devices, POST /lab/devices/{id}/install, GET /lab/devices/{id}/summary, DELETE /lab/devices/{id}, GET /lab/devices; token auth; backend abstraction container or firecracker; read-only hawkBit artifact download; memory trend sampler; pytest with fake device and fake hawkBit | implementer | T5.3, T7.2 | todo | — | Agent gets only this API |
-| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | scaffolder | T9.1, T2.3 | todo | — | Controller needs docker socket; the agent never does |
+| T9.1 | Minimal container lab API: create devices at requested version/revision, install read-only hawkBit artifacts, summary, list, delete; token auth and memory/OOM reporting | orch | T5.3, T7.2 | in-progress | — | Container runtime only; agent sees controller API, controller owns Docker socket |
+| T9.2 | Lab wiring: controller service in compose (attached to backend + lab networks), lab devices on internal lab network, Makefile `lab` | orch | T9.1, T2.3 | todo | — | |
 | T9.3 | Smoke S5: create one lab device, install a bundle fetched from hawkBit, read summary; tear down | verifier | T9.2, T3.3 | todo | — | |
 
 ### M10 — Grafana + MCP
