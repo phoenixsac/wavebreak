@@ -5,7 +5,7 @@
 - Instructions: [docs/prompts/overnight.md](prompts/overnight.md)
 - Design source of truth: [docs/architecture.md](architecture.md)
 
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 ## How to use this file (loop runs)
 
@@ -129,7 +129,7 @@ STATUS: IN PROGRESS
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
 | T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
 | T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
-| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | in-progress | — | Rechecking runbook commands, Compose profiles, tracker statuses, and live service state before completion. |
+| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | done | smoke | Runbook commands, Compose profiles, tracker statuses, and live service state checked; lab API, hawkBit API/UI, and five-panel Grafana dashboard respond. No field or lab device containers left running. |
 
 ## Needs human
 
@@ -166,3 +166,4 @@ STATUS: IN PROGRESS
 | 2026-09-26 | Codex build | Provisioned Wavebreak Fleet dashboard; verified Grafana loads five panels and Prometheus/Loki accept all queries (T10.2) |
 | 2026-09-26 | Codex build | Added separate optional hawkBit UI 1.1.0; smoke-tested lite opt-in at :8081 with a 384 MiB heap cap (T2.9) |
 | 2026-09-26 | Codex build | Reconciled T6.2, completed Makefile/env coverage, and parked optional Grafana SA + agent-side lab client tasks outside the local MVP |
+| 2026-09-26 | Codex build | Final consistency pass: lint/compile/config/API checks passed; marked container MVP complete (T12.5) |
