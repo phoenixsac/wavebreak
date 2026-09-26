@@ -39,6 +39,7 @@ STATUS: IN PROGRESS
 | T2.5 | `platform/loki/config.yaml` (single binary, filesystem, retention small, low memory) | scaffolder | T2.3 | done | static | loki -verify-config rc 0 (3.5.0) |
 | T2.6 | Makefile `up` / `down` with PROFILE=lite or full | scaffolder | T2.3 | done | static | Makefile uses --env-file .env; adds mcp profile when jar present |
 | T2.7 | hawkBit tenant bootstrap script `scripts/hawkbit-config.sh`: enable gateway-token auth, set token from `.env`, set polling interval | orch | T2.1 | done | smoke | Verified against running server. Min polling 30s by default; lowered with -Dhawkbit.controller.minPollingTime=00:00:05, 10s accepted |
+| T2.8 | Persist lite-profile H2 state across hawkBit container recreation | orch | T2.3 | in-progress | — | Running image has no H2 database files; `PROFILES=h2` uses ephemeral in-memory state unless a file URL is configured. |
 
 ### M3 — Bundles + publish
 
