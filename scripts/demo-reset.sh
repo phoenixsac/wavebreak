@@ -116,9 +116,9 @@ while :; do
     frames=$(prom_value "wavebreak_app_frames_total{device_id=\"$target\",fw_version=\"v1.1\"}" || true)
     fps=$(prom_value "wavebreak_app_fps{device_id=\"$target\",fw_version=\"v1.1\"}" || true)
     restarts=$(prom_value "wavebreak_app_restarts_total{device_id=\"$target\",fw_version=\"v1.1\"}" || true)
-    if [[ $systemd != active || -z $frames || -z $fps || -z $restarts || \
-          $(awk -v f="$frames" -v p="$fps" -v r="$restarts" \
-            'BEGIN{print (f+0)<=0 || (p+0)<=0 || (r+0)>0}') == 1 ]]; then
+    bad_metrics=$(awk -v f="$frames" -v p="$fps" -v r="$restarts" \
+      'BEGIN { print int((f+0)<=0 || (p+0)<=0 || (r+0)>0) }')
+    if [[ $systemd != active || -z $frames || -z $fps || -z $restarts || $bad_metrics == 1 ]]; then
       healthy=0
     fi
   done <<<"$targets"
