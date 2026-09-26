@@ -129,7 +129,7 @@ STATUS: IN PROGRESS
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
 | T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
 | T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | done | static | Lite, full, lite-UI, lab-port, and down profiles verified with Make dry-runs and Compose config; `.env.example` carries backend, UI, lab, and telemetry ports/defaults. |
-| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | todo | — | |
+| T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | in-progress | — | Rechecking runbook commands, Compose profiles, tracker statuses, and live service state before completion. |
 
 ## Needs human
 
