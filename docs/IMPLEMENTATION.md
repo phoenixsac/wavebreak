@@ -108,7 +108,7 @@ STATUS: IN PROGRESS
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T10.1 | Grafana provisioning: Prometheus + Loki datasources (fixed UIDs), dashboard provider | orch | T2.3 | done | static | Provisioning files are present; verify in backend smoke |
-| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | todo | — | Critical path |
+| T10.2 | Minimal fleet dashboard for versions, memory, restarts and OOM evidence | orch | T10.1 | in-progress | — | Critical path; provisioned JSON in platform/grafana/dashboards/ |
 | T10.3 | Research + add mcp-grafana service: official image, network transport flag (SSE or streamable HTTP), port, env for URL and service-account token | researcher | T2.3 | done | static | grafana/mcp-grafana: `-t streamable-http -address 0.0.0.0:8000`, `--disable-write`, env GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN. Compose service added in T2.3 |
 | T10.4 | `scripts/grafana-sa.sh`: create Viewer service account + token via Grafana API, write GRAFANA_SA_TOKEN to .env, idempotent | implementer | T10.1 | todo | — | |
 

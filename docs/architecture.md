@@ -552,6 +552,7 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D25 | Fleet `frame_scale` is passed as `WAVEBREAK_FRAME_SCALE` into the device environment | Lets the profile control simulated frame allocation rate; identity setup must preserve the exact app variable name | 2026-09-26 |
 | D26 | E2E restart checks take the maximum over matching Prometheus series and scope the baseline to the installed firmware version | Remote-write retains series across firmware label changes and older versions can remain visible | 2026-09-26 |
 | D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
+| D28 | Grafana's `Wavebreak Fleet` dashboard is provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` and reads Prometheus metrics plus Loki runtime logs | One checked-in dashboard exposes version mix, app memory, restarts, FPS, and OOM/killed-process evidence | 2026-09-26 |
 
 ---
 
