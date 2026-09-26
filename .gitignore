@@ -15,3 +15,26 @@ agent/spike/*_events.json
 agent/spike/spike_markers.txt
 agent/spike/openapi.json
 agent/spike/*.out
+
+# secrets and keys (never commit)
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# local state and databases (ledger, TrueForge data)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+.trueforge/
+
+# scratch and run artifacts
+*.log
+*.tmp
+*.bak
+/0
+scratch/
+tmp/
+

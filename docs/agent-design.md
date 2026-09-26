@@ -390,7 +390,7 @@ Two providers: **local fallback** (default when host deps exist) and **Daytona**
 | Aspect | Observed |
 |---|---|
 | Process | `bwrap --new-session --die-with-parent --unshare-net ...` is PID 1 of a **new PID namespace**; own mount namespace; runs as the **same uid** as TrueForge (no root, no user switch) |
-| Filesystem | Deny-by-default (`denyRead /`, allowlist of `/usr /bin /lib /etc /dev /proc /sys` read-only); write only inside a per-session directory under `~/.local/share/trueforge/sandboxes/<session>/`. `/home/dev` appears empty, project `.env` not visible, `/var/run/docker.sock` absent. `touch /tmp/x` and `touch /home/dev/x` succeed inside but land in a private tmpfs and do not appear on the host |
+| Filesystem | Deny-by-default (`denyRead /`, allowlist of `/usr /bin /lib /etc /dev /proc /sys` read-only); write only inside a per-session directory under `~/.local/share/trueforge/sandboxes/<session>/`. the home directory appears empty, project `.env` not visible, `/var/run/docker.sock` absent. `touch /tmp/x` and `touch /home/dev/x` succeed inside but land in a private tmpfs and do not appear on the host |
 | Network | Own network namespace with only `lo`. `127.0.0.1:8790` (TrueForge), `:8791` (MCP), `:9090` (Prometheus) unreachable. Outbound only through an SRT HTTP/SOCKS proxy with a **domain allowlist**: pypi.org, pythonhosted.org, github.com, api.github.com, githubusercontent.com. `example.com` blocked, `pypi.org` reachable |
 | Environment | `HOME`, `TMPDIR`, `PATH` overridden; no secrets in env (grep for key/token/secret/gemini empty). Provider API keys are not passed in |
 | Resource limits | None observed (no cgroup/rlimit in the bwrap argv). A runaway script can use host CPU/RAM. TODO(verify) with a memory hog |

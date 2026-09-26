@@ -154,7 +154,7 @@ STATUS: IN-PROGRESS
 
 | ID | Item | Command | Status |
 |----|------|---------|--------|
-| N1 | Firecracker host networking (bridges, NAT, user-owned taps). Not persistent: rerun after `wsl --shutdown` | `sudo /home/dev/wavebreak/scripts/host/setup-fc-net.sh` | done 2026-09-25: wbfield0, wblab0, fc-field-1..2, fc-lab-1..2 owned by uid 1001, NAT rule present |
+| N1 | Firecracker host networking (bridges, NAT, user-owned taps). Not persistent: rerun after `wsl --shutdown` | `sudo ~/wavebreak/scripts/host/setup-fc-net.sh` | done 2026-09-25: wbfield0, wblab0, fc-field-1..2, fc-lab-1..2 owned by uid 1001, NAT rule present |
 | N2 | Push committed deployment code to origin | `git push origin master` | done 2026-09-26: `master` pushed through `79f10c9`; agent working-tree edits were not included |
 
 ## Parked
