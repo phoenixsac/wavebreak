@@ -569,8 +569,8 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | # | Question | Status |
 |---|----------|--------|
 | Q1 | hawkBit MCP server: released image? transport, port, tools | **Resolved** T2.2: jar on Maven Central, streamable HTTP, port 8081 (host 8082), see §5 |
-| Q2 | TrueForge API and harness structure | TODO(verify) build day — do not invent |
-| Q3 | TrueFoundry LLM gateway config and models | TODO(verify) build day |
+| Q2 | TrueForge API and harness structure | **Resolved** 2026-09-26: HTTP API + SSE, agents/sessions/turns; see `docs/agent-design.md` §21 |
+| Q3 | TrueFoundry LLM gateway config and models | **Resolved**: AI Gateway not available in OSS TrueForge; model is Google Gemini via the built-in provider (`docs/agent-design.md` A13) |
 | Q4 | hawkBit polling interval config (tenant-wide `pollingTime`?) | **Resolved** T2.1 (docs): tenant config `pollingTime` `HH:MM:SS` |
 | Q5 | systemd as PID 1 in Docker without privileged | **Resolved** D12 |
 | Q6 | AWS credits scope and limits | TODO(verify) build day |
@@ -590,9 +590,9 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 > Built on the build day. Not part of this run.
 
 - **Role**: rollout manager. Inventory versions → rehearse on lab devices → canary waves 2 → 5 → all → verify with metrics/logs → promote, halt, or roll back.
-- **Harness**: TrueForge on TrueFoundry (TODO(verify) API).
+- **Harness**: TrueForge (OSS local mode, v0.2.1) on port 8790; model Google Gemini. API verified, see `docs/agent-design.md`.
 - **Tools**: mcp-grafana (PromQL, LogQL, dashboards), hawkBit MCP or `wavebreak_clients.hawkbit`, `wavebreak_clients.lab`.
-- **Sandbox**: generated analysis code runs in the sandbox; device experiments run in the lab zone.
+- **Sandbox**: generated analysis code runs in TrueForge's sandbox (local bubblewrap fallback or Daytona; isolation notes in `docs/agent-design.md` §19); device experiments run in the lab zone.
 - **Approval gate**: required before any hawkBit write (rollout create/start, assignment, rollback).
 
 ---
