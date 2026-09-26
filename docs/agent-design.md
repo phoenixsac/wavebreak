@@ -396,7 +396,7 @@ Two providers: **local fallback** (default when host deps exist) and **Daytona**
 Setup: fleet on v1.1 (or v1.0), all healthy; Grafana dashboard open; TrueForge chat open.
 
 1. "v1.3 is published. Take care of the rollout." → inventory, plan (stratified), **rehearsal catches the crash loop on all hw_revs** → blocked before any field device is touched. Report.
-2. "v1.2 is published. Take care of the rollout." → rehearsal window (e.g. 2 min) is shorter than the leak onset (~3 min) → passes (honest limitation of short rehearsals).
+2. "v1.2 is published. Take care of the rollout." → **Verified 2026-09-26 with the real lab: a 90 s rehearsal on rev B already FAILS (memory slope about 11 MB/min), so v1.2 is blocked in rehearsal, not caught by the canary.** To demo the canary catch, use a shorter rehearsal window or rev A only (TODO decide), or accept that rehearsal blocks v1.2 as well.
 3. Evidence card → **approve** wave 1 (2 devices: 1 rev A + 1 rev B, stratified).
 4. `observe_wave` → rev B device memory climbs, OOM kills, restarts; rev A flat; control flat → regression on rev B.
 5. Evidence card + cause (rev B shared, `get_bundle_diff` shows the new 4K buffer) → **approve** halt → **approve** rollback of rev B cohort to v1.1.
