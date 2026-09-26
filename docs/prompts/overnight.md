@@ -162,3 +162,13 @@ RULES (always)
 - Prefer finishing more tasks at "static/unit" verification over sinking hours into one local smoke test that the memory limit won't allow.
 
 RATE LIMIT RULE: run at most 2 subagents in parallel; prefer haiku/sonnet subagents; keep the orchestrator's own work minimal.
+
+MVP PRIORITY RULE (overrides task order): the hackathon starts today. Build ONLY this critical path, in order, then stop and set STATUS: COMPLETE:
+1. Backend compose: hawkBit, Prometheus, Loki, Grafana (+ mcp-grafana).
+2. Bundles v1.0-v1.4 + build/publish scripts (finish what exists).
+3. ota-agent: DDI mode + install/rollback (finish what exists).
+4. Device image + CONTAINER runtime + fleet launcher + seed.
+5. e2e.sh: v1.2 on rev B shows OOM restarts; reassigning v1.1 recovers.
+6. Minimal Grafana dashboard.
+7. Minimal lab controller (create device, install bundle, summary).
+Mark as PARKED: Firecracker runtime, AWS launch.sh (keep a simple install.sh), extra docs polish. Unit tests only where cheap. At most 2 subagents in parallel.
