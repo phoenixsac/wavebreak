@@ -128,7 +128,7 @@ STATUS: IN PROGRESS
 | T12.1 | Research: AWS CLI syntax for nested virtualization on M8i (cpu-options), minimum CLI version, Ubuntu 24.04 SSM parameter path | researcher | — | done | static | `--cpu-options NestedVirtualization=enabled`, AWS CLI >= 2.36, SSM Ubuntu 24.04 path; docs read only |
 | T12.2 | AWS `launch.sh` | orch | T12.1 | parked | — | Explicitly excluded from MVP critical path |
 | T12.3 | AWS `install.sh` | orch | T7.4, T8.1 | parked | — | AWS and Firecracker deployment excluded from MVP critical path |
-| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | todo | — | Do not add unrelated full/AWS targets |
+| T12.4 | Verify Makefile and `.env.example` cover the container MVP | orch | T7.4 | in-progress | — | Check container profiles, optional UI and lab port defaults, cleanup targets, and exact runbook commands. |
 | T12.5 | Final pass: exact local container runbook; docs match code; STATUS: COMPLETE | orch | all critical path tasks | todo | — | |
 
 ## Needs human
