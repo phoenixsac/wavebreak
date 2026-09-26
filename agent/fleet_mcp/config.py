@@ -46,6 +46,7 @@ class Settings:
     lab_mock_scenarios: dict = field(default_factory=dict)
     evidence_max_age_s: float = 900.0
     lab_max_minutes: float = 5.0
+    lab_parallel: int = 2  # lab devices alive at once; hw_revs beyond this are rehearsed in later batches
     observe_max_minutes: float = 4.0
     poll_interval_s: float = 15.0
     bundles_dir: str = "sim/bundles"
@@ -80,6 +81,7 @@ class Settings:
             lab_mock_scenarios=scenarios,
             evidence_max_age_s=get("FLEET_EVIDENCE_MAX_AGE_S", d.evidence_max_age_s, float),
             lab_max_minutes=get("FLEET_LAB_MAX_MINUTES", d.lab_max_minutes, float),
+            lab_parallel=max(1, get("FLEET_LAB_PARALLEL", d.lab_parallel, int)),
             observe_max_minutes=get("FLEET_OBSERVE_MAX_MINUTES", d.observe_max_minutes, float),
             poll_interval_s=get("FLEET_POLL_INTERVAL_S", d.poll_interval_s, float),
             bundles_dir=get("BUNDLES_DIR", d.bundles_dir),
