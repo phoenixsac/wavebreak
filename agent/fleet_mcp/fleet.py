@@ -21,6 +21,7 @@ from .ledger import Ledger, Plan, parse_ts
 from .models import Device, DeviceStats
 from .planner import pick_from_version, plan_waves
 from .preconditions import (
+    check_exclusion,
     check_halt,
     check_observe_wave,
     check_record_decision,
@@ -200,7 +201,27 @@ class Fleet:
         }
         out["devices"], extra = self._device_rows(plan)
         out.update(extra)
+        if plan.held:
+            out["held"] = self._held_rows(plan, extra.get("hawkbit_error") is None)
         return out
+
+    def _held_rows(self, plan: Plan, query_installed: bool) -> list[dict]:
+        """Cohorts held out of the plan, with the evidence that justified it and their installed versions."""
+        rows = []
+        for h in plan.held:
+            row = {
+                "hw_rev": h["hw_rev"],
+                "devices": h["device_ids"],
+                "evidence_id": h["evidence_id"],
+                "reason": h["reason"],
+            }
+            if query_installed:
+                try:
+                    row["installed_versions"] = self.field.installed_versions(h["device_ids"])
+                except Exception as exc:  # noqa: BLE001 - keep the ledger view even if hawkBit is down
+                    row["installed_versions_error"] = f"{type(exc).__name__}: {exc}"
+            rows.append(row)
+        return rows
 
     def _wave_rows(self, plan: Plan, started: dict[int, dict], latest_obs: dict) -> list[dict]:
         rows = []
@@ -292,9 +313,23 @@ class Fleet:
     # plan ------------------------------------------------------------------
 
     def plan_rollout(
-        self, version: str, waves: list[int | str] | None = None, stratify_by: str = "hw_rev"
+        self,
+        version: str,
+        waves: list[int | str] | None = None,
+        stratify_by: str = "hw_rev",
+        exclude_hw_revs: list[str] | None = None,
+        exclusion_evidence_id: str | None = None,
     ) -> dict:
-        """Create a stratified rollout plan (supersedes a PLANNED/REHEARSED one)."""
+        """Create a stratified rollout plan (supersedes a PLANNED/REHEARSED one).
+
+        `exclude_hw_revs` holds whole hardware cohorts out of the plan (partial rollout). It needs
+        `exclusion_evidence_id`: rehearsal evidence of this version that FAILED for each held hw_rev.
+        """
+        hold_ev = failed = None
+        if exclude_hw_revs or exclusion_evidence_id:
+            hold_ev, failed = check_exclusion(
+                self.ledger, version, list(exclude_hw_revs or []), exclusion_evidence_id
+            )
         try:
             self.field.distribution_set_id(version)
         except LookupError as exc:
@@ -309,13 +344,49 @@ class Fleet:
             raise PreconditionError("BAD_ARGUMENT", "no eligible devices")
         from_version = pick_from_version({d.id: d.version for d in eligible})
         candidates = [d for d in eligible if d.version == from_version]
+        held: list[dict] = []
+        if hold_ev is not None:
+            excluded_revs = set(failed)
+            held_devs = [d for d in candidates if d.hw_rev in excluded_revs]
+            candidates = [d for d in candidates if d.hw_rev not in excluded_revs]
+            for hw in sorted(excluded_revs):
+                ids = sorted(d.id for d in held_devs if d.hw_rev == hw)
+                if not ids:
+                    raise PreconditionError(
+                        "BAD_ARGUMENT", f"no eligible device with hw_rev {hw} to hold; check exclude_hw_revs"
+                    )
+                held.append(
+                    {
+                        "hw_rev": hw,
+                        "device_ids": ids,
+                        "evidence_id": hold_ev.evidence_id,
+                        "reasons": failed[hw].get("reasons", []),
+                        "reason": f"rehearsal failed for hw_rev {hw}: "
+                        + "; ".join(failed[hw].get("reasons", [])),
+                    }
+                )
+            if not candidates:
+                raise PreconditionError("BAD_ARGUMENT", "every eligible device is held; nothing to roll out")
         wave_devices, warnings = plan_waves(candidates, list(waves or DEFAULT_WAVES), stratify_by)
         planned = {d.id for w in wave_devices for d in w}
-        excluded = self._excluded(inventory, version, from_version, planned)
+        held_by_id = {i: h for h in held for i in h["device_ids"]}
+        excluded = self._excluded(inventory, version, from_version, planned, held_by_id)
         meta = {d.id: {"hw_rev": d.hw_rev, "region": d.region} for w in wave_devices for d in w}
         plan_id = self.ledger.create_plan(
-            version, from_version, [[d.id for d in w] for w in wave_devices], meta
+            version, from_version, [[d.id for d in w] for w in wave_devices], meta, held
         )
+        if held:
+            self.ledger.add_event(
+                plan_id,
+                "hold",
+                {
+                    "hw_revs": [h["hw_rev"] for h in held],
+                    "device_ids": sorted(held_by_id),
+                    "evidence_id": hold_ev.evidence_id,
+                    "source_plan_id": hold_ev.plan_id,
+                    "reasons": {h["hw_rev"]: h["reasons"] for h in held},
+                },
+            )
         wave_rows = []
         for n, w in enumerate(wave_devices, start=1):
             shown, dropped = _cap([d.id for d in w])
@@ -339,17 +410,29 @@ class Fleet:
             "warnings": warnings,
             "next": "rehearse",
         }
+        if held:
+            out["held"] = [{k: h[k] for k in ("hw_rev", "device_ids", "evidence_id", "reason")} for h in held]
+            out["next"] = "rehearse (the kept hw_revs; held cohorts are not rolled out and must be reported)"
         if dropped_ex:
             out["excluded_truncated"] = dropped_ex
         return out
 
     @staticmethod
-    def _excluded(inventory: list[Device], version: str, from_version: str, planned: set[str]) -> list[dict]:
+    def _excluded(
+        inventory: list[Device],
+        version: str,
+        from_version: str,
+        planned: set[str],
+        held_by_id: dict[str, dict] | None = None,
+    ) -> list[dict]:
         out = []
         for d in inventory:
             if d.id in planned:
                 continue
-            if d.version == version:
+            if held_by_id and d.id in held_by_id:
+                h = held_by_id[d.id]
+                reason = f"held: hw_rev {h['hw_rev']} failed rehearsal {h['evidence_id']}"
+            elif d.version == version:
                 reason = f"already on {version}"
             elif d.version == "none":
                 reason = "no installed version reported"

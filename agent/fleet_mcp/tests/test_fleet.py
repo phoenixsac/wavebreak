@@ -620,3 +620,132 @@ def test_lab_parallel_gives_identical_evidence(tmp_path):
     one, two = outs
     for key in ("verdict", "per_hw_rev", "window_minutes", "phase", "next"):
         assert one[key] == two[key]
+
+
+# 11. partial rollout (hold a failed hw_rev) -------------------------------------------
+
+
+def blocked_leak_plan(tmp_path, n=2, waves=(1, "rest")):
+    """v1.2 rehearsal fails for rev B only; returns (env, blocked plan id, failing rehearsal evidence id)."""
+    env = build_fleet(tmp_path, make_devices(n, n), scenarios={"v1.2:B": "leak"})
+    pid, rev = plan_and_rehearse(env, waves=waves, minutes=5)
+    assert rev["verdict"] == "fail" and rev["phase"] == "BLOCKED"
+    assert rev["per_hw_rev"]["A"]["verdict"] == "pass" and rev["per_hw_rev"]["B"]["verdict"] == "fail"
+    return env, pid, rev["evidence_id"]
+
+
+def test_partial_plan_holds_failed_cohort_and_records_it(tmp_path):
+    env, blocked, ev = blocked_leak_plan(tmp_path)
+    plan = env.fleet.plan_rollout("v1.2", [1, "rest"], exclude_hw_revs=["B"], exclusion_evidence_id=ev)
+    pid = plan["plan_id"]
+    assert pid != blocked and plan["phase"] == "PLANNED"
+    assert [w["by_hw_rev"] for w in plan["waves"]] == [{"A": 1}, {"A": 1}]
+    (held,) = plan["held"]
+    assert (
+        held["hw_rev"] == "B" and held["device_ids"] == ["b1", "b2"] and held["evidence_id"] == ev
+    )
+    assert "memory_slope" in held["reason"] or "oom" in held["reason"]
+    assert {e["id"]: e["reason"] for e in plan["excluded"]} == {
+        "b1": f"held: hw_rev B failed rehearsal {ev}",
+        "b2": f"held: hw_rev B failed rehearsal {ev}",
+    }
+    stored = env.ledger.get_plan(pid)
+    assert stored.held[0]["evidence_id"] == ev and set(stored.devices) == {"a1", "a2"}
+    (hold_evt,) = env.ledger.events(pid, types=["hold"])
+    assert hold_evt.payload["hw_revs"] == ["B"] and hold_evt.payload["source_plan_id"] == blocked
+    assert hold_evt.payload["evidence_id"] == ev and hold_evt.payload["device_ids"] == ["b1", "b2"]
+    state = env.fleet.get_rollout_state(pid)
+    assert state["held"][0]["hw_rev"] == "B" and state["held"][0]["evidence_id"] == ev
+    assert state["held"][0]["installed_versions"] == {"b1": "v1.1", "b2": "v1.1"}
+
+
+def test_partial_rollout_end_to_end_leaves_held_cohort_untouched(tmp_path):
+    env, _blocked, ev = blocked_leak_plan(tmp_path)
+    pid = env.fleet.plan_rollout("v1.2", [1, "rest"], exclude_hw_revs=["B"], exclusion_evidence_id=ev)[
+        "plan_id"
+    ]
+    rev = run(env.fleet.rehearse(pid, minutes=5))  # only rev A devices are in the plan
+    assert rev["verdict"] == "pass" and set(rev["per_hw_rev"]) == {"A"}
+    env.fleet.start_wave(pid, 1, rev["evidence_id"])
+    obs = run(env.fleet.observe_wave(pid, 1, 2))
+    assert obs["verdict"] == "healthy"
+    env.fleet.start_wave(pid, 2, obs["evidence_id"])
+    obs2 = run(env.fleet.observe_wave(pid, 2, 2))
+    assert obs2["verdict"] == "healthy" and obs2["phase"] == "COMPLETE"
+    started = [c for c in env.field.start_wave_calls]
+    assert len(started) == 2
+    assert {d for call in started for d in call[-1]} == {"a1", "a2"}
+    state = env.fleet.get_rollout_state(pid)
+    assert state["held"][0]["devices"] == ["b1", "b2"]
+    assert state["held"][0]["installed_versions"] == {"b1": "v1.1", "b2": "v1.1"}
+
+
+def test_partial_plan_requires_evidence(tmp_path):
+    env, _blocked, _ev = blocked_leak_plan(tmp_path)
+    refused("EVIDENCE_MISSING", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], None)
+    refused("EVIDENCE_MISSING", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], "ev-nope")
+    refused("BAD_ARGUMENT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", [], "ev-nope")
+    refused("BAD_ARGUMENT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", None, "ev-nope")
+
+
+def test_partial_plan_evidence_must_show_failure_of_each_held_hw_rev(tmp_path):
+    env, _blocked, ev = blocked_leak_plan(tmp_path)
+    refused("EVIDENCE_VERDICT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["A"], ev)  # A passed
+    refused("EVIDENCE_VERDICT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["A", "B"], ev)
+    refused("EVIDENCE_VERDICT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["C"], ev)  # never rehearsed
+
+
+def test_partial_plan_evidence_must_be_rehearsal_of_same_version(tmp_path):
+    env, blocked, ev = blocked_leak_plan(tmp_path)
+    refused("EVIDENCE_WRONG_VERSION", env.fleet.plan_rollout, "v1.3", None, "hw_rev", ["B"], ev)
+    env.ledger.add_event(blocked, "decision", {"decision": "x"})
+    obs = env.ledger.new_evidence(blocked, "observation", "regression", {"version": "v1.2"}, wave=1)
+    refused("EVIDENCE_WRONG_KIND", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], obs.evidence_id)
+
+
+def test_partial_plan_refuses_unknown_or_total_hold(tmp_path):
+    env, _blocked, ev = blocked_leak_plan(tmp_path)
+    # a hold of a hw_rev with no eligible device (evidence claims C failed): forge such evidence
+    forged = env.ledger.new_evidence(
+        env.ledger.latest_plan().plan_id,
+        "rehearsal",
+        "fail",
+        {"version": "v1.2", "per_hw_rev": {"C": {"verdict": "fail", "reasons": ["x"]}}},
+    )
+    refused(
+        "BAD_ARGUMENT",
+        env.fleet.plan_rollout,
+        "v1.2",
+        None,
+        "hw_rev",
+        ["C"],
+        forged.evidence_id,
+    )
+    # holding every hw_rev leaves nothing to roll out
+    both = env.ledger.new_evidence(
+        env.ledger.latest_plan().plan_id,
+        "rehearsal",
+        "fail",
+        {
+            "version": "v1.2",
+            "per_hw_rev": {"A": {"verdict": "fail", "reasons": []}, "B": {"verdict": "fail", "reasons": []}},
+        },
+    )
+    refused("BAD_ARGUMENT", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["A", "B"], both.evidence_id)
+    assert ev  # the original evidence is untouched
+
+
+def test_failed_hold_creates_no_plan(tmp_path):
+    env, blocked, _ev = blocked_leak_plan(tmp_path)
+    refused("EVIDENCE_MISSING", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], None)
+    assert env.ledger.latest_plan().plan_id == blocked
+
+
+def test_partial_plan_still_refused_while_another_plan_runs(tmp_path):
+    env = build_fleet(tmp_path, make_devices(2, 2), scenarios={"v1.3": "crash"})
+    pid, rev = plan_and_rehearse(env, version="v1.2", minutes=5)
+    env.fleet.start_wave(pid, 1, rev["evidence_id"])
+    ev = env.ledger.new_evidence(
+        pid, "rehearsal", "fail", {"version": "v1.2", "per_hw_rev": {"B": {"verdict": "fail", "reasons": []}}}
+    )
+    refused("ACTIVE_PLAN_EXISTS", env.fleet.plan_rollout, "v1.2", None, "hw_rev", ["B"], ev.evidence_id)

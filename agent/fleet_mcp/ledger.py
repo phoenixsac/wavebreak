@@ -26,7 +26,7 @@ PHASES = (
 )
 TERMINAL_PHASES = ("BLOCKED", "COMPLETE", "VERIFIED")
 SUPERSEDABLE_PHASES = ("PLANNED", "REHEARSED")  # nothing started in the field; a new plan replaces it
-EVENT_TYPES = ("rehearsal", "observation", "decision", "approval", "action", "verification", "error")
+EVENT_TYPES = ("rehearsal", "observation", "decision", "approval", "action", "verification", "hold", "error")
 EVIDENCE_KINDS = ("rehearsal", "observation", "verification")
 
 SCHEMA = """
@@ -62,7 +62,10 @@ def _utcnow() -> datetime:
 
 @dataclass
 class Plan:
-    """A rollout plan. `waves[0]` is wave 1; `devices` maps id -> {hw_rev, region}."""
+    """A rollout plan. `waves[0]` is wave 1; `devices` maps id -> {hw_rev, region}.
+
+    `held` lists cohorts deliberately left out of the plan: {hw_rev, device_ids, evidence_id, reason}.
+    """
 
     plan_id: str
     version: str
@@ -72,6 +75,7 @@ class Plan:
     phase: str
     created_at: str
     updated_at: str
+    held: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +99,7 @@ def _plan_from_row(row: sqlite3.Row) -> Plan:
         from_version=row["from_version"],
         waves=[list(w) for w in blob["waves"]],
         devices=blob["devices"],
+        held=list(blob.get("held", [])),
         phase=row["phase"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -150,10 +155,15 @@ class Ledger:
     # plans -----------------------------------------------------------------
 
     def create_plan(
-        self, version: str, from_version: str, waves: list[list[str]], devices: dict[str, dict]
+        self,
+        version: str,
+        from_version: str,
+        waves: list[list[str]],
+        devices: dict[str, dict],
+        held: list[dict] | None = None,
     ) -> str:
         """Create a PLANNED plan; PLANNED/REHEARSED plans are superseded, other non-terminal plans refuse."""
-        blob = json.dumps({"waves": waves, "devices": devices}, sort_keys=True)
+        blob = json.dumps({"waves": waves, "devices": devices, "held": held or []}, sort_keys=True)
         marks = ",".join("?" * len(TERMINAL_PHASES))
         with self._conn(write=True) as c:
             for row in c.execute(

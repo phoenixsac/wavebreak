@@ -138,3 +138,14 @@ def test_error_events_and_default_clock(tmp_path):
     e = lg.add_event(pid, "error", {"tool": "t", "code": "BAD_PHASE", "message": "m"})
     assert lg.events(pid, types=["error"]) == [e]
     assert e.ts.endswith("+00:00")
+
+
+def test_held_cohorts_round_trip_and_default_empty(tmp_path):
+    lg = Ledger(tmp_path / "h.sqlite")
+    plain = lg.create_plan("v2", "v1", [["a"]], {"a": {"hw_rev": "A", "region": "eu"}})
+    assert lg.get_plan(plain).held == []
+    held = [{"hw_rev": "B", "device_ids": ["b"], "evidence_id": "ev-1", "reason": "leak"}]
+    pid = lg.create_plan("v2", "v1", [["a"]], {"a": {"hw_rev": "A", "region": "eu"}}, held)
+    assert lg.get_plan(pid).held == held
+    lg.add_event(pid, "hold", {"hw_revs": ["B"], "evidence_id": "ev-1"})
+    assert [e.type for e in lg.events(pid, types=["hold"])] == ["hold"]

@@ -264,3 +264,40 @@ def check_record_decision(ledger: Ledger, plan_id: str, evidence_ids: list[str])
         if ev.plan_id != plan.plan_id:
             raise _refuse(ledger, plan, tool, "EVIDENCE_WRONG_PLAN", f"{eid} belongs to plan {ev.plan_id}")
     return plan
+
+
+def check_exclusion(
+    ledger: Ledger, version: str, exclude_hw_revs: list[str], evidence_id: str | None
+) -> tuple[Event, dict[str, dict]]:
+    """Validate a hold: rehearsal evidence of `version` that FAILED for every excluded hw_rev.
+
+    Returns (evidence, {hw_rev: that hw_rev's rehearsal result}). No plan exists yet, so nothing is
+    written to the ledger on refusal. The evidence may belong to an earlier (blocked) plan.
+    """
+    if not exclude_hw_revs or not all(isinstance(r, str) and r for r in exclude_hw_revs):
+        raise PreconditionError("BAD_ARGUMENT", "exclude_hw_revs must be a non-empty list of hw_rev names")
+    ev = ledger.get_evidence(evidence_id) if evidence_id else None
+    if ev is None:
+        raise PreconditionError(
+            "EVIDENCE_MISSING",
+            "excluding a cohort needs exclusion_evidence_id (a failed rehearsal evidence id)",
+        )
+    if ev.type != "rehearsal":
+        raise PreconditionError("EVIDENCE_WRONG_KIND", f"{evidence_id} is {ev.type} evidence, need rehearsal")
+    if ev.payload.get("version") != version:
+        raise PreconditionError(
+            "EVIDENCE_WRONG_VERSION",
+            f"{evidence_id} rehearsed {ev.payload.get('version')}, this plan is for {version}",
+        )
+    per_hw = ev.payload.get("per_hw_rev") or {}
+    failed: dict[str, dict] = {}
+    for hw in exclude_hw_revs:
+        result = per_hw.get(hw)
+        if not result or result.get("verdict") != "fail":
+            raise PreconditionError(
+                "EVIDENCE_VERDICT",
+                f"{evidence_id} does not show a failed rehearsal for hw_rev {hw} "
+                f"(rehearsed: {', '.join(sorted(per_hw)) or 'none'})",
+            )
+        failed[hw] = result
+    return ev, failed

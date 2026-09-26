@@ -105,11 +105,24 @@ def create_server(fleet: Fleet, settings: Settings) -> FastMCP:
         stratify_by: Annotated[
             str, Field(description="Attribute to stratify canaries by: hw_rev, region or version.")
         ] = "hw_rev",
+        exclude_hw_revs: Annotated[
+            list[str] | None,
+            Field(
+                description='PARTIAL ROLLOUT: hw_revs to hold out of this plan, like ["B"]. Needs exclusion_evidence_id.'
+            ),
+        ] = None,
+        exclusion_evidence_id: Annotated[
+            str | None,
+            Field(
+                description="Rehearsal evidence id of this version that FAILED for every hw_rev in exclude_hw_revs (from the blocked plan)."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Create a stratified wave plan for `version`; devices already on it are excluded and from_version is the most common installed version.
-        Supersedes an unstarted plan and is refused while another plan is running (ACTIVE_PLAN_EXISTS). Returns plan_id and the waves; next step is rehearse."""
+        Supersedes an unstarted plan and is refused while another plan is running (ACTIVE_PLAN_EXISTS). Returns plan_id and the waves; next step is rehearse.
+        Partial rollout: when a rehearsal failed for only some hw_revs, call again with exclude_hw_revs and that rehearsal's evidence id; the held cohort is recorded in the ledger and listed as held in get_rollout_state. It stays on from_version."""
         try:
-            return fleet.plan_rollout(version, waves, stratify_by)
+            return fleet.plan_rollout(version, waves, stratify_by, exclude_hw_revs, exclusion_evidence_id)
         except PreconditionError as exc:
             raise _refusal(exc) from exc
 
