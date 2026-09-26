@@ -519,9 +519,9 @@ Every series carries `device_id`, `hw_rev`, `region`, `fw_version` (added by Flu
 | Runtime | container; Firecracker for one-VM smoke | firecracker (fallback container if no `/dev/kvm`) |
 | Host | 3.5 GB RAM, 8 vCPU, KVM available | `m8i.2xlarge`, nested virtualization via `--cpu-options NestedVirtualization=enabled` (AWS CLI >= 2.36), Ubuntu 24.04, 60 GB gp3 |
 | Access | localhost | SG restricted to caller IP: 22, 3000, 8080, MCP, 8090 |
-| Bootstrap | Makefile targets | `infra/aws/launch.sh` → user-data → `infra/aws/install.sh` |
+| Bootstrap | Makefile targets | Not ready: `infra/aws/launch.sh` and `infra/aws/install.sh` are absent from the repository |
 
-Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
+Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `down`, `bundles`, `publish`, `fleet`, `fleet-down`, `seed`, `lab`, `grafana-sa`, `demo-reset`, `demo-status`, `view`, `test`, `lint`, `smoke-<component>`, `all`.
 
 ---
 
@@ -558,6 +558,8 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D27 | Lab controller fetches bundles with a dedicated hawkBit user granted `READ_TARGET`, `READ_DISTRIBUTION_SET`, `READ_DISTRIBUTION_SET_TYPE`, `READ_SOFTWARE_MODULE`, `READ_SOFTWARE_MODULE_TYPE`, and `READ_SOFTWARE_MODULE_ARTIFACT` | Lab rehearsal must download releases without Management API write access; verified read endpoints return 200 and target creation returns 403 | 2026-09-26 |
 | D28 | Grafana's `Wavebreak Fleet` dashboard is provisioned from `platform/grafana/dashboards/wavebreak-fleet.json` and reads Prometheus metrics plus Loki runtime logs | One checked-in dashboard exposes version mix, app memory, restarts, FPS, and OOM/killed-process evidence | 2026-09-26 |
 | D29 | hawkBit UI is a separate optional 1.1.0 service, with a 384 MiB JVM heap cap, enabled by default in full and only by `HAWKBIT_UI=1` in lite | Keep the browser UI available for full deployments without adding its Java process to the memory-constrained lite backend by default | 2026-09-26 |
+| D30 | `make demo-reset` stops active hawkBit rollouts, cancels active target actions, then explicitly assigns v1.1 to four lite devices and waits for successful install reports plus healthy app telemetry; it also deletes all lab devices | Repeated agent demos start from a known 2-rev-A / 2-rev-B state; verified live in under 45 seconds | 2026-09-26 |
+| D31 | `make grafana-sa` rotates a Grafana Viewer token into local `.env` and recreates mcp-grafana with that token | Keep MCP access read-only and make token replacement reproducible | 2026-09-26 |
 
 ---
 
@@ -602,14 +604,17 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 cp .env.example .env
 make up PROFILE=lite
 make bundles publish
-make fleet PROFILE=lite RUNTIME=container
-make seed PROFILE=lite
+make grafana-sa
+make demo-reset
+make demo-status
 scripts/e2e.sh
-make fleet-down PROFILE=lite RUNTIME=container
-make lab PROFILE=lite
 ```
 
-The lab controller URL is `http://localhost:8090`; Grafana is `http://localhost:3000` (`admin` / `GRAFANA_ADMIN_PASSWORD`, default `admin`). Run `make down` when finished. Lite hawkBit uses file-backed H2 in the `hawkbit-artifacts` volume. If that volume is intentionally removed, run `make publish` and `make seed PROFILE=lite` again.
+`make demo-reset` brings up the four lite devices and lab controller, stops active hawkBit rollouts, cancels active actions, assigns v1.1, waits for all devices to report v1.1 and pass app/telemetry health checks, and empties the lab. It is safe to repeat; recent live runs completed in 22–42 seconds. `make demo-status` prints versions grouped by hardware revision, per-device health, active rollouts, lab devices, and service URLs. Run `make demo-reset` again before each agent demo.
+
+Grafana is at `http://localhost:3000` (`admin` / `GRAFANA_ADMIN_PASSWORD`, default `admin`). `make grafana-sa` creates or reuses a Viewer service account, rotates its token into `.env`, and restarts mcp-grafana. The optional hawkBit UI is at `http://localhost:8081` (`admin` / `HAWKBIT_PASSWORD`, default `admin`) when enabled with `make up PROFILE=lite HAWKBIT_UI=1`. The lab controller is at `http://localhost:8090`. Lite hawkBit uses file-backed H2 in the `hawkbit-artifacts` volume. If that volume is intentionally removed, run `make bundles publish` and `make demo-reset` again.
+
+When finished, run `make fleet-down PROFILE=lite RUNTIME=container` and `make down`.
 
 Optional lite hawkBit browser UI:
 
@@ -622,3 +627,7 @@ Open `http://localhost:8081` and log in as `admin` with `HAWKBIT_PASSWORD` from 
 ### Full profile
 
 On a host with memory for the full backend and 20-device fleet, `make up PROFILE=full` starts MySQL and the hawkBit UI by default. Continue with `make bundles publish`, `make fleet PROFILE=full RUNTIME=container`, and `make seed PROFILE=full`. The UI uses the same `http://localhost:8081` URL and admin credentials described above.
+
+### AWS readiness
+
+The repository currently has no `infra/aws/launch.sh` or `infra/aws/install.sh`; only `infra/aws/.gitkeep` is tracked. The AWS install procedure has not been reviewed against persistent H2, the separate hawkBit UI, the lab controller, the provisioned Grafana dashboard, or demo reset. Do not treat the AWS bootstrap row above as executable until those scripts are added and reviewed. The installer review requested for this build is tracked as blocked.
