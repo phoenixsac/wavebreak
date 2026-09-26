@@ -72,6 +72,11 @@ apt-get install -y docker-ce docker-ce-cli containerd.io \
   docker-buildx-plugin docker-compose-plugin nodejs
 systemctl enable --now docker
 
+# Each systemd device container owns inotify instances; the Ubuntu default of
+# 128 is too small for the full 20-device fleet plus host services.
+printf 'fs.inotify.max_user_instances=1024\n' > /etc/sysctl.d/90-wavebreak-inotify.conf
+sysctl --system >/dev/null
+
 docker compose version >/dev/null
 node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 14)) process.exit(1)' \
   || die "Node.js >=22.14 is required by TrueForge (found $(node --version))"
