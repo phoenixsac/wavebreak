@@ -22,8 +22,8 @@
 - The regression path (halt, rollback, verify_recovery) is still only unit-tested.
 - Drift items C4 to C12 and the environment items in `docs/architecture.md` §12 are unchanged.
 
-## Stray file `0` in the repo root: cause found, not fixed by me
-`scripts/demo-reset.sh` line 121: `awk ... 'BEGIN{print (f+0)<=0 || (p+0)<=0 || (r+0)>0}'`. In awk, `print expr > x` is an output redirect, so the last `> 0` writes the result to a file named `0` in the current directory (every `make demo-reset`), and the command substitution gets no output, so the per-device health check `... == 1` can never be true: **the check never fails**. Fix (one line, `scripts/` is Codex's, so not applied): wrap the expression, `print ((f+0)<=0 || (p+0)<=0 || (r+0)>0)`. Delete `0` after each reset until then; I never commit it.
+## Stray file `0` in the repo root: cause found, fixed by Codex
+Cause: `scripts/demo-reset.sh` used `awk ... 'BEGIN{print (f+0)<=0 || (p+0)<=0 || (r+0)>0}'`; in awk `print expr > x` is an output redirect, so the trailing `> 0` wrote to a file named `0` on every `make demo-reset`, and the command substitution got no output, so the per-device health check could never fail. Codex's commit `806c6fc` ("Avoid awk redirection in demo reset") removes the redirect; all my scene runs (and the file's reappearance) predate it. I deleted the file and never committed it.
 
 ## Process notes
 - Codex edits `infra/`, `scripts/`, `Makefile`, `docs/architecture.md`, `docs/aws-deploy.md` in this checkout; I committed only my own paths. During my last runs `demo-reset.sh` was briefly broken by an in-progress edit of theirs (`eep: command not found`); it worked again after.
@@ -31,5 +31,4 @@
 
 ## What you must do by hand
 1. If Scene 2 stalls in the demo, type `proceed`.
-2. Apply the one-line awk fix in `scripts/demo-reset.sh` (or tell Codex).
-3. Keep `agent/spike/.env` on AWS with `TFY_BASE_URL`, `TFY_API_KEY`, `TFY_MODEL`, `TFY_MODEL_DEV`, then `python3 agent/register.py --provider gateway --tier demo --register-provider`.
+2. Keep `agent/spike/.env` on AWS with `TFY_BASE_URL`, `TFY_API_KEY`, `TFY_MODEL`, `TFY_MODEL_DEV`, then `python3 agent/register.py --provider gateway --tier demo --register-provider`.
