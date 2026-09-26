@@ -71,18 +71,18 @@ STATUS: IN PROGRESS
 | T6.2 | `sim/device/Dockerfile`: debian bookworm-slim, systemd PID 1 (mask udev/getty), node_exporter (pinned, textfile collector dir), fluent-bit, python3, ota-agent, inference-app v1.0 preinstalled in slot_a, STOPSIGNAL SIGRTMIN+3 | orch | T4.2, T5.3 | done | static | Present in commit cd5fe0d; image has not been built |
 | T6.3 | systemd units: inference-app (MemoryMax from profile env, Restart=always), ota-agent (mode from env), node_exporter, fluent-bit, wavebreak-identity, boot-record and restarts-metric timer | orch | T6.2 | done | static | Units and helper scripts present in cd5fe0d; runtime behavior unverified |
 | T6.4 | Fluent Bit config for metrics and logs; kmsg only on Firecracker; labels from labels.env | orch | T6.1, T6.3 | done | static | Config files present in cd5fe0d; plugin/runtime behavior unverified |
-| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | in-progress | — | User requested starting here. Flags: `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock` |
-| T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | todo | — | |
-| T6.7 | Smoke: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | todo | — | Critical path e2e coverage may satisfy this |
+| T6.5 | Build image; static checks and one container boots to `running`; tear down | orch | T6.4 | done | smoke | Image built. Container booted, identity + inference-app + node_exporter active, labels v1.0 correct. Fixed identity temp-file handling; OTA local API was confirmed to require LAB_DEVICE_TOKEN; telemetry-off correctly skips Fluent Bit. |
+| T6.6 | Smoke: backend plus one device container sends labeled telemetry; install updates fw_version labels; tear down | orch | T6.5, T2.4, T2.5 | done | smoke | Lite fleet sent device/fw_version-labeled app metrics to Prometheus and logs to Loki. During e2e, edge-001 metrics changed through v1.2 and v1.1 after installs; fleet was removed afterward. |
+| T6.7 | E2E: v1.2 on rev B shows OOM restarts; v1.1 recovery; tear down | orch | T6.6 | done | smoke | `scripts/e2e.sh` assigned v1.2 to rev-B edge-001, observed `wavebreak_app_restarts_total` reach 1, reinstalled v1.1, confirmed active app + labeled frames metric, and removed the lite fleet. |
 
 ### M7 — Container runtime + fleet launcher + seed
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
 | T7.1 | `sim/fleet/fleet.yaml`: profiles lite (4) and full (20), hw_rev mix 60/40, regions us-east, eu-west, ap-south, initial_version v1.0, MemoryMax per profile, VM memory per profile | scaffolder | — | done | static | yaml lint. rev B rule: device i is B iff ceil(i*0.4) > ceil((i-1)*0.4) |
-| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container; deterministic IDs and assignments | orch | T7.1, T6.5 | todo | — | Container runtime only |
-| T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | todo | — | |
-| T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | orch | T7.2, T7.3 | in-progress | static | Targets already exist; verify and repair integration |
+| T7.2 | Fleet launcher `sim/fleet/fleetctl.py`: up/down/status/logs; runtime container; deterministic IDs and assignments | orch | T7.1, T6.5 | done | smoke | Implemented Docker field-network lifecycle and env wiring; `make fleet PROFILE=lite RUNTIME=container` launched 4 devices, all expected services active and all four registered in hawkBit. |
+| T7.3 | `scripts/seed.sh`: wait until all fleet devices are registered in hawkBit, assign DS v1.0 to all, wait for actions to close | orch | T3.2, T7.2 | done | smoke | `make publish` populated current H2 server; `PROFILE=lite make seed` assigned v1.0 and all 4 agents reported installedDS v1.0. |
+| T7.4 | Makefile `fleet`, `fleet-down`, `seed` with PROFILE and RUNTIME | orch | T7.2, T7.3 | done | smoke | Existing targets verified: fleet launch/status and `PROFILE=lite make seed` all succeeded. |
 
 ### M8 — Firecracker runtime
 
@@ -115,7 +115,7 @@ STATUS: IN PROGRESS
 
 | ID | Task | Owner | Depends | Status | Verif | Notes |
 |----|------|-------|---------|--------|-------|-------|
-| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | todo | — | Explicit start per wave is required by the agent |
+| T11.1 | `wavebreak_clients/hawkbit.py`: read inventory and create/control one explicitly-started rollout per wave; no automatic next-group start; assignment and artifact download | orch | T2.1 | done | smoke | Live hawkBit OpenAPI verified. Created an unstarted rollout for edge-001; it settled at ready with one group while installedDS remained v1.0. start is a separate method. Ruff passes. |
 | T11.2 | `wavebreak_clients/observability.py`: PromQL instant/range, LogQL range (direct; Grafana proxy optional); fixture tests | implementer | — | done | unit | stdlib urllib; shared `_http.py`; 14 tests vs local http.server fixtures; Grafana proxy constructor |
 | T11.3 | `wavebreak_clients/lab.py`: all lab controller endpoints; tests against FastAPI TestClient | implementer | T9.1 | todo | — | |
 
@@ -152,3 +152,9 @@ STATUS: IN PROGRESS
 | 2026-09-25 22:30 | 1 (interactive, after go) | Re-checked N1 (host net up) and N2 (pushed); loop ready |
 | 2026-09-26 | MVP run | T2.3–T2.7 backend compose, configs, hawkbit-config.sh, fetch-hawkbit-mcp.sh |
 | 2026-09-26 | Codex handoff audit | Reconciled tracker with repository; Part A skipped; container MVP scope recorded; agent-design pointer added |
+| 2026-09-26 | Codex MVP | Built device image and booted one container; fixed identity startup temp-file bug (T6.5) |
+| 2026-09-26 | Codex MVP | Implemented fleetctl container up/down/status/logs; lite fleet booted and registered (T7.2) |
+| 2026-09-26 | Codex MVP | Published bundles to live H2 hawkBit and seeded all four devices (T7.3) |
+| 2026-09-26 | Codex MVP | Verified Makefile fleet and seed integration (T7.4) |
+| 2026-09-26 | Codex MVP | Added hawkBit Management API client; verified a ready one-group rollout stays unstarted (T11.1) |
+| 2026-09-26 | Codex MVP | Ran v1.2 OOM → v1.1 recovery e2e on edge-001; fleet cleaned up (T6.7) |

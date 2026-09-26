@@ -372,6 +372,8 @@ Auth header: `Authorization: GatewayToken <token>` (or `TargetToken <token>`), b
 
 Auth: HTTP basic (user from `.env`).
 
+Canary waves are separate hawkBit rollouts. `HawkbitClient.create_wave()` creates one rollout with `amountGroups: 1` and leaves it unstarted; `start_rollout()` is a separate call after approval. The next wave is another create call with its own target filter, so success in one wave cannot start the next wave.
+
 ### ota-agent local API (lab devices only)
 
 | Endpoint | Method | Purpose |
@@ -543,6 +545,10 @@ Make targets (PROFILE=lite or full, RUNTIME=container or firecracker): `up`, `do
 | D20 | Release source lives in `sim/bundles/vX.Y/` (full copies); `sim/inference-app/` holds the shared tests | Releases must be real, diffable code; bundles are what hawkBit ships | 2026-09-25 |
 | D22 | Lite hawkBit uses in-memory H2 (image default); state resets on container recreate, rerun `make publish seed` | Simplest; no H2 URL override that could clash with the full profile | 2026-09-26 |
 | D21 | Rev B assignment: device i is B iff ceil(0.4 i) > ceil(0.4 (i-1)) | Deterministic, evenly spread; edge-001 is B so a 2-device canary wave includes rev B | 2026-09-25 |
+| D23 | If lite hawkBit starts with empty H2 state, rerun the idempotent bundle build/publish flow before seeding | A fresh embedded-H2 state had no release distribution sets; publishing restored v1.0–v1.4 | 2026-09-26 |
+| D24 | Device identity setup creates temporary files under `/run/wavebreak` and removes them with an exit trap | The `/tmp` file was missing during an early systemd boot; moving both files into the unit's runtime directory made identity initialization reliable | 2026-09-26 |
+| D25 | Fleet `frame_scale` is passed as `WAVEBREAK_FRAME_SCALE` into the device environment | Lets the profile control simulated frame allocation rate; identity setup must preserve the exact app variable name | 2026-09-26 |
+| D26 | E2E restart checks take the maximum over matching Prometheus series and scope the baseline to the installed firmware version | Remote-write retains series across firmware label changes and older versions can remain visible | 2026-09-26 |
 
 ---
 
