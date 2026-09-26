@@ -33,10 +33,18 @@ GRAFANA_TOOLS = [
 ]
 
 
-def manifest() -> dict:
+def model_params(model: str) -> dict:
+    """Lite models reject `reasoning_effort` (TrueForge answers 422)."""
+    params: dict = {"temperature": 0.1}
+    if "lite" not in model:
+        params["reasoning_effort"] = "medium"
+    return params
+
+
+def manifest(model: str = MODEL) -> dict:
     """The agent spec (docs/agent-design.md section 14)."""
     return {
-        "model": {"name": MODEL, "params": {"temperature": 0.1, "reasoning_effort": "medium"}},
+        "model": {"name": model, "params": model_params(model)},
         "instructions": (HERE / "instructions.md").read_text(),
         "mcp_servers": [
             {
@@ -65,7 +73,7 @@ def manifest() -> dict:
         "messages": [
             {
                 "type": "user.message",
-                "content": "Start by calling get_rollout_state and get_fleet_inventory, then wait for my instruction.",
+                "content": "Start by calling get_rollout_state and get_fleet_inventory.",
             }
         ],
     }
@@ -93,10 +101,11 @@ def main() -> None:
     ap.add_argument("--base-url", default="http://localhost:8790")
     ap.add_argument("--fleet-url", default="http://127.0.0.1:8792/mcp")
     ap.add_argument("--grafana-url", default="http://127.0.0.1:8000/mcp")
+    ap.add_argument("--model", default=MODEL, help="TrueForge model id (default: the demo model)")
     ap.add_argument("--render-only", action="store_true", help="only write wavebreak-agent.json")
     args = ap.parse_args()
 
-    spec = manifest()
+    spec = manifest(args.model)
     (HERE / "wavebreak-agent.json").write_text(json.dumps(spec, indent=2) + "\n")
     print("wrote agent/wavebreak-agent.json")
     if args.render_only:
@@ -123,7 +132,8 @@ def main() -> None:
     existing = {a["name"]: a["id"] for a in out.get("data", [])} if status == 200 else {}
     body = {"name": AGENT_NAME, "description": "Wavebreak rollout manager", "manifest": spec}
     if AGENT_NAME in existing:
-        status, out = call(args.base_url, "PUT", f"/agents/{existing[AGENT_NAME]}", body)
+        update = {k: v for k, v in body.items() if k != "name"}  # the update endpoint rejects "name"
+        status, out = call(args.base_url, "PUT", f"/agents/{existing[AGENT_NAME]}", update)
         print("agent updated:", status, "" if status < 300 else out)
     else:
         status, out = call(args.base_url, "POST", "/agents", body)

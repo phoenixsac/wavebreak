@@ -5,7 +5,7 @@ Usage:
   python3 agent/driver.py --session <id> "continue"
 Approval-gated calls (start_wave, halt_rollout, rollback) pause the turn; the driver shows the tool
 call and asks y/n on stdin. Provider rate limits (HTTP 429 in a failed turn) are retried with
-backoff by sending "continue" to the same session. Stdlib only.
+backoff (also connection drops) by sending "continue" to the same session. Stdlib only.
 """
 
 from __future__ import annotations
@@ -61,6 +61,14 @@ def is_rate_limit(message: str) -> bool:
     return "429" in text or "quota" in text or "rate limit" in text or "resource_exhausted" in text
 
 
+def is_transient(message: str) -> bool:
+    """Provider errors worth a retry: rate limits plus connection drops and overload."""
+    text = (message or "").lower()
+    return is_rate_limit(message) or any(
+        k in text for k in ("cannot connect to api", "overloaded", "unavailable", "503", "timed out")
+    )
+
+
 def run_turn(base: str, session_id: str, items: list[dict], out=sys.stdout) -> dict:
     """Run one turn, printing a compact log. Returns the final `turn.done` state plus tool-call info."""
     calls: dict[str, dict] = {}  # tool call id -> {name, args}
@@ -108,10 +116,10 @@ def drive(base: str, session_id: str, prompt: str, auto: bool | None = None) -> 
         if status == "error":
             msg = state.get("message", "")
             print(f"\n[turn error] {msg[:300]}")
-            if is_rate_limit(msg) and retries < MAX_RETRIES:
+            if is_transient(msg) and retries < MAX_RETRIES:
                 delay = retry_delay(msg, retries)
                 retries += 1
-                print(f"[rate limited: waiting {delay:.0f}s, retry {retries}/{MAX_RETRIES}]")
+                print(f"[transient error: waiting {delay:.0f}s, retry {retries}/{MAX_RETRIES}]")
                 time.sleep(delay)
                 items = [{"type": "user.message", "content": "continue"}]
                 continue
@@ -136,6 +144,7 @@ def drive(base: str, session_id: str, prompt: str, auto: bool | None = None) -> 
 
 
 def main() -> None:
+    sys.stdout.reconfigure(line_buffering=True)  # readable logs when redirected to a file
     ap = argparse.ArgumentParser()
     ap.add_argument("prompt")
     ap.add_argument("--base-url", default="http://localhost:8790")

@@ -68,3 +68,10 @@ def test_approval_loop_allows_and_denies(monkeypatch):
                 "approval": {"status": want},
             }
         ]
+
+
+def test_is_transient():
+    assert driver.is_transient("Cannot connect to API: ")
+    assert driver.is_transient("Request failed (429): quota")
+    assert driver.is_transient("503 Service Unavailable")
+    assert not driver.is_transient("Tool call failed: PLAN_NOT_FOUND")
